@@ -17,7 +17,7 @@ CREATE PROCEDURE [AutoWho].[InsertConfigData]
 	OUTSTANDING ISSUES: None at this time.
 
     CHANGE LOG:	
-				2016-09-09	Aaron Morelli		Final run-through and commenting
+				2016-10-04	Aaron Morelli		Initial release
 
 
 	MIT License
@@ -46,6 +46,18 @@ CREATE PROCEDURE [AutoWho].[InsertConfigData]
 To Execute
 ------------------------
 EXEC AutoWho.InsertConfigData @HoursToKeep=336	--14 days
+
+--use to reset the data:
+truncate table CorePE.ProcessingTimes
+truncate table autowho.Options
+truncate table autowho.Options_History
+truncate table AutoWho.CollectorOptFakeout
+truncate table AutoWho.DimCommand
+truncate table AutoWho.DimConnectionAttribute
+truncate table AutoWho.DimLoginName
+truncate table AutoWho.DimNetAddress
+truncate table AutoWho.DimSessionAttribute
+truncate table AutoWho.DimWaitType
 */
 (
 	@HoursToKeep INT
@@ -69,6 +81,12 @@ BEGIN
 		OR EXISTS (SELECT * FROM AutoWho.DimNetAddress)
 		OR EXISTS (SELECT * FROM AutoWho.DimSessionAttribute)
 		OR EXISTS (SELECT * FROM AutoWho.DimWaitType)
+		OR EXISTS (SELECT * FROM CorePE.ProcessingTimes WHERE Label IN (
+										N'AutoWhoLastLatchResolve',
+										N'AutoWhoLastLockResolve',
+										N'AutoWhoLastNodeStatusResolve',
+										N'AutoWhoStoreLastTouched')
+					)
 	BEGIN
 		RAISERROR('The configuration tables are not empty. You must clear these tables first before this procedure will insert config data', 16,1);
 		RETURN -2;
@@ -157,31 +175,17 @@ BEGIN
 
 	--Retention variables are based on the DaysToKeep input parameter
 	UPDATE AutoWho.Options 
-	SET Retention_IdleSPIDs_NoTran = @HoursToKeep;
-
-	UPDATE AutoWho.Options 
-	SET Retention_IdleSPIDs_WithShortTran = @HoursToKeep;
-
-	UPDATE AutoWho.Options 
-	SET Retention_IdleSPIDs_WithLongTran = @HoursToKeep;
-
-	UPDATE AutoWho.Options 
-	SET Retention_IdleSPIDs_HighTempDB = @HoursToKeep;
-
-	UPDATE AutoWho.Options 
-	SET Retention_ActiveLow = @HoursToKeep;
-
-	UPDATE AutoWho.Options 
-	SET Retention_ActiveMedium = @HoursToKeep;
-
-	UPDATE AutoWho.Options 
-	SET Retention_ActiveHigh = @HoursToKeep;
-
-	UPDATE AutoWho.Options 
-	SET Retention_ActiveBatch = @HoursToKeep;
-
-	UPDATE AutoWho.Options 
-	SET Retention_CaptureTimes = (@HoursToKeep/24) + 2;
+	SET 
+		Retention_IdleSPIDs_NoTran = @HoursToKeep,
+		Retention_IdleSPIDs_WithShortTran = @HoursToKeep,
+		Retention_IdleSPIDs_WithLongTran = @HoursToKeep,
+		Retention_IdleSPIDs_HighTempDB = @HoursToKeep,
+		Retention_ActiveLow = @HoursToKeep,
+		Retention_ActiveMedium = @HoursToKeep,
+		Retention_ActiveHigh = @HoursToKeep,
+		Retention_ActiveBatch = @HoursToKeep,
+		Retention_CaptureTimes = (@HoursToKeep/24) + 2
+	;
 
 
 	INSERT INTO CorePE.ProcessingTimes (Label, LastProcessedTime)
@@ -197,7 +201,7 @@ BEGIN
 	SELECT N'AutoWhoLastLockResolve', NULL;
 
 	INSERT INTO CorePE.Version ([Version], EffectiveDate)
-		SELECT '0.9', GETDATE()
+		SELECT '0.5', GETDATE()
 	;
 
 	RETURN 0;

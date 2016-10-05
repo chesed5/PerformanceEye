@@ -49,8 +49,13 @@
 param ( 
 [Parameter(Mandatory=$true)][string]$Server, 
 [Parameter(Mandatory=$false)][string]$Database,
-[Parameter(Mandatory=$false)][string]$HoursToKeep
+[Parameter(Mandatory=$false)][string]$HoursToKeep,
+[Parameter(Mandatory=$false)][string]$DBExists
 ) 
+
+Write-Host "PerformanceEye v0.5" -backgroundcolor black -foregroundcolor cyan
+Write-Host "MIT License" -backgroundcolor black -foregroundcolor cyan
+Write-Host "Copyright (c) 2016 Aaron Morelli" -backgroundcolor black -foregroundcolor cyan
 
 ## basic parameter checking 
 if ($Server -eq $null) {
@@ -63,15 +68,11 @@ if ($Server -eq "") {
 	Break
 }
 
+$Database = $Database.TrimStart().TrimEnd()
+
 if ( ($Database -eq $null) -or ($Database -eq "") )  {
-	$Database = "sqlcrosstools"
+	$Database = "PerformanceEye"
 }
-
-if ($Database -eq "") {
-	Write-Host "Parameter -Database cannot be blank." -foregroundcolor red -backgroundcolor black
-	Break
-}
-
 
 if ( ($HoursToKeep -eq $null) -or ($HoursToKeep -eq "") ) {
 	$HoursToKeep = "336"
@@ -85,7 +86,18 @@ if ( ($HoursToKeep_num -le 0) -or ($HoursToKeep_num -gt 4320) ) {
 	Break
 }
 
-# avoid sql injection by limiting $Database to alphanumeric. (Yeah, this is cheap. Will revisit)
+$DBExists = $DBExists.ToUpper().TrimStart().TrimEnd()
+
+if ( ( $DBExists -eq $null) -or ($DBExists -eq "") ) {
+    $DBExists = "N"
+}
+
+if ( ($DBExists -ne "N") -and ($DBExists -ne "Y") ) {
+    Write-Host "Parameter -DBExists must be Y or N if specified" -foregroundcolor red -backgroundcolor black
+	Break
+}
+
+# avoid sql injection by limiting $Database to alphanumeric. (Yeah, this is cheap and dirty. Will revisit)
 if ($Database -notmatch '^[a-z0-9]+$') { 
     Write-Host "Parameter -Database can only contain alphanumeric characters." -foregroundcolor red -backgroundcolor black
 	Break
@@ -100,11 +112,23 @@ if ( !($curScriptLoc.EndsWith("\")) ) {
 	$curScriptLoc = $curScriptLoc + "\"
 }
 
-$installerlogsloc = $curScriptLoc + "installerlogs\"
+$installerlogsloc = $curScriptLoc + "InstallationLogs\"
 
-$sqlLog = $installerlogsloc + "sqlcrosstools_installation" + "_{0:yyyyMMdd_HHmmss}.log" -f (Get-Date)
+$installerLogFile = $installerlogsloc + "PerformanceEye_installation" + "_{0:yyyyMMdd_HHmmss}.log" -f (Get-Date)
 
+$curtime = Get-Date -format s
+$outmsg = $curtime + "------> Beginning installation..." 
+Write-Host $outmsg -backgroundcolor black -foregroundcolor cyan
+
+$curtime = Get-Date -format s
+$outmsg = $curtime + "------> Parameter Validation complete. Proceeding with installation on server " + $Server + ", Database " + $Database + ", HoursToKeep " + $HoursToKeep + ", DBExists " + $DBExists
+Write-Host $outmsg -backgroundcolor black -foregroundcolor cyan
+
+
+$curtime = Get-Date -format s
+$outmsg = $curtime + "------> Installation operations will be logged to " + $installerLogFile
+Write-Host $outmsg -backgroundcolor black -foregroundcolor cyan
 
 CD $curScriptLoc 
 
-powershell.exe -noprofile -file .\install_database_objects.ps1 -Server $Server -Database $Database -HoursToKeep $HoursToKeep -curScriptLocation $curScriptLoc > $sqlLog
+powershell.exe -noprofile -file .\InstallerScripts\install_database_objects.ps1 -Server $Server -Database $Database -HoursToKeep $HoursToKeep -DBExists $DBExists -curScriptLocation $curScriptLoc > $installerLogFile

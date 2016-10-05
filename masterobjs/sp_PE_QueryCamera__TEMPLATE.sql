@@ -139,7 +139,7 @@ BEGIN
 	END
 
 
-	EXEC PerformanceEye.AutoWho.QueryCamera @spid=@spid, @request=@request, @frequency=@frequency,
+	EXEC @@PEDATABASENAME@@.AutoWho.QueryCamera @spid=@spid, @request=@request, @frequency=@frequency,
 									@captures=@captures, @wait=@wait, 
 									@allcaptures = @allcaptures, @PKSQLStmtStoreID = @PKSQLStmtStoreID; 
 

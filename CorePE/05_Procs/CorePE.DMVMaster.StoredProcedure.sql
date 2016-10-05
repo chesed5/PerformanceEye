@@ -52,15 +52,25 @@ EXEC CorePE.PerformanceEyeMaster @ErrorMessage=@lmsg OUTPUT
 PRINT ISNULL(@lmsg, '<null>')
 */
 (
-	@AutoWhoJobName NVARCHAR(255) =N'PerformanceEye - Disabled - AutoWho Trace',
-	@ServerEyeJobName NVARCHAR(255)=N'PerformanceEye - Disabled - ServerEye Trace',
-	@PurgeDOW NVARCHAR(21) = 'Sun',		-- to do every day of the week: 'SunMonTueWedThuFriSat'
-	@PurgeHour TINYINT = 2,				-- 2am
-	@ErrorMessage VARCHAR(MAX)=NULL OUTPUT
+	@AutoWhoJobName NVARCHAR(255)		= NULL,
+	@ServerEyeJobName NVARCHAR(255)		= NULL,
+	@PurgeDOW NVARCHAR(21)				= 'Sun',	-- to do every day of the week: 'SunMonTueWedThuFriSat'
+	@PurgeHour TINYINT					= 2,		-- 2am
+	@ErrorMessage VARCHAR(MAX)			= NULL OUTPUT
 )
 AS
 BEGIN
 	SET NOCOUNT ON;
+
+	IF @AutoWhoJobName IS NULL
+	BEGIN
+		SET @AutoWhoJobName = DB_NAME() + N' - AlwaysDisabled - AutoWho Trace';
+	END
+
+	IF @ServerEyeJobName IS NULL
+	BEGIN
+		SET @ServerEyeJobName = DB_NAME() + N' - AlwaysDisabled - ServerEye Trace'
+	END
 
 	BEGIN TRY
 		--General variables
@@ -73,18 +83,6 @@ BEGIN
 		DECLARE @lv__AutoWhoStoreLastTouched DATETIME2(7),
 				@lv__ThisTouchTime DATETIME2(7);
 		DECLARE @lv__AutoWhoLastWaitResolve DATETIME2(7);
-
-		IF @AutoWhoJobName IS NULL
-		BEGIN
-			RAISERROR('Parameter @AutoWhoJobName must be the name of a SQL Agent job on this instance.',16,1);
-			RETURN -1;
-		END
-
-		IF @ServerEyeJobName IS NULL
-		BEGIN
-			RAISERROR('Parameter @ServerEyeJobName must be the name of a SQL Agent job on this instance.',16,1);
-			RETURN -3;
-		END
 
 		SET @PurgeDOW = LOWER(@PurgeDOW);
 
@@ -259,6 +257,7 @@ BEGIN
 RETURN 0;
 
 		/*************************************** ServerEye Job stuff ***************************/
+/*
 		DECLARE @ServerEye__IsEnabled NCHAR(1), 
 				@ServerEye__NextStartTime DATETIME, 
 				@ServerEye__NextEndTime DATETIME
@@ -312,6 +311,7 @@ RETURN 0;
 			END		--IF @tmptime BETWEEN @ServerEye__NextStartTime AND @ServerEye__NextEndTime
 					-- that is, "IF trace should be running"
 		END		--IF job exists/doesn't exist
+*/
 
 		--TODO: implement ServerEye purge
 		/*************************************** ServerEye Job stuff ***************************/
