@@ -10,7 +10,7 @@ CREATE PROCEDURE [AutoWho].[Collector]
 					email@TBD.com
 					@sqlcrossjoin
 					sqlcrossjoin.wordpress.com
-					https://github.com/amorelli005/PerformanceEye
+					https://github.com/AaronMorelli/PerformanceEye
 
 	PURPOSE: Collects data from a wide array of session-focused DMVs and stores the data in various AutoWho tables.
 		Much care has gone into finding the right balance of completeness and efficiency, and much of the below
@@ -2650,7 +2650,7 @@ There are a number of points worth noting re: the below scoping queries:
 
 		SET @errorloc = N'IB capture cursor pop';
 
-		DECLARE getInputBufferCursor CURSOR STATIC LOCAL FORWARD_ONLY FOR 
+		DECLARE getInputBufferCursor CURSOR LOCAL FAST_FORWARD FOR 
 		SELECT bc.session_id 
 		FROM #BChain bc
 		WHERE @lv__BChainRecsExist = 1					--should give us a startup filter so that we don't touch the #BChain table
@@ -2957,7 +2957,7 @@ There are a number of points worth noting re: the below scoping queries:
 	IF @ObtainBatchText = N'Y'
 	BEGIN
 		SET @errorloc = N'Batch capture cursor pop';
-		DECLARE getDistinctBatch CURSOR STATIC LOCAL FORWARD_ONLY FOR 
+		DECLARE getDistinctBatch CURSOR LOCAL FAST_FORWARD FOR 
 			SELECT DISTINCT s.rqst__sql_handle 
 			FROM #sessions_and_requests s 
 			WHERE s.calc__return_to_user > 0
@@ -3093,7 +3093,7 @@ There are a number of points worth noting re: the below scoping queries:
 
 	--Get the statement text for any #sar records that weren't already resolved by the above UPDATE.
 	SET @errorloc = N'Stmt capture cursor pop';
-	DECLARE getDistinctText CURSOR STATIC LOCAL FORWARD_ONLY FOR 
+	DECLARE getDistinctText CURSOR LOCAL FAST_FORWARD FOR 
 		SELECT DISTINCT s.rqst__sql_handle, s.rqst__statement_start_offset, s.rqst__statement_end_offset 
 		FROM #sessions_and_requests s 
 		WHERE s.calc__return_to_user > 0 
@@ -3222,7 +3222,7 @@ There are a number of points worth noting re: the below scoping queries:
 	IF @ObtainQueryPlanForBatch = N'Y' AND @thresh__QueryPlansNeeded > 0
 	BEGIN
 		SET @errorloc = N'PlanBatch capture cursor pop';
-		DECLARE getDistinctPlanHandles1 CURSOR STATIC LOCAL FORWARD_ONLY FOR 
+		DECLARE getDistinctPlanHandles1 CURSOR LOCAL FAST_FORWARD FOR 
 		SELECT DISTINCT s.rqst__plan_handle
 		FROM #sessions_and_requests s 
 		WHERE s.calc__return_to_user > 0 
@@ -3331,7 +3331,7 @@ There are a number of points worth noting re: the below scoping queries:
 	IF @ObtainQueryPlanForStatement = N'Y' AND @thresh__QueryPlansNeeded > 0
 	BEGIN
 		SET @errorloc = N'PlanStmt cursor pop';
-		DECLARE getDistinctPlanHandles2 CURSOR STATIC LOCAL FORWARD_ONLY FOR 
+		DECLARE getDistinctPlanHandles2 CURSOR LOCAL FAST_FORWARD FOR 
 		SELECT DISTINCT s.rqst__plan_handle, s.rqst__statement_start_offset, s.rqst__statement_end_offset
 		FROM #sessions_and_requests s 
 		WHERE s.calc__return_to_user > 0 
@@ -3693,7 +3693,7 @@ There are a number of points worth noting re: the below scoping queries:
 
 		SET @errorloc = N'PageLatch cursor pop';
 
-		DECLARE resolvelatchtags CURSOR STATIC LOCAL FORWARD_ONLY FOR 
+		DECLARE resolvelatchtags CURSOR LOCAL FAST_FORWARD FOR 
 		SELECT DISTINCT resource_dbid, wait_special_number, resource_associatedobjid
 		FROM #tasks_and_waits taw
 		WHERE taw.wait_special_category IN (@enum__waitspecial__pg, @enum__waitspecial__pgio, @enum__waitspecial__pgblocked)

@@ -1,5 +1,5 @@
 #####
-# PRODUCT:    PerformanceEye  https://github.com/amorelli005/PerformanceEye
+# PRODUCT:    PerformanceEye  https://github.com/AaronMorelli/PerformanceEye
 # PROCEDURE:	Uninstall_PerformanceEye.ps1
 #
 # AUTHOR: Aaron Morelli
@@ -56,6 +56,8 @@ param (
 [Parameter(Mandatory=$false)][string]$ServerObjectsOnly,
 [Parameter(Mandatory=$false)][string]$DropDatabase
 ) 
+
+$ErrorActionPreference = "Stop"
 
 Write-Host "PerformanceEye v0.5" -backgroundcolor black -foregroundcolor cyan
 Write-Host "MIT License" -backgroundcolor black -foregroundcolor cyan
@@ -169,4 +171,15 @@ Write-Host $outmsg -backgroundcolor black -foregroundcolor cyan
 
 CD $curScriptLoc 
 
-powershell.exe -noprofile -file .\InstallerScripts\uninstall_database_objects.ps1 -Server $Server -Database $Database -ServerObjectsOnly $ServerObjectsOnly -DropDatabase $DropDatabase -curScriptLocation $curScriptLoc > $installerLogFile
+powershell.exe -noprofile -command .\InstallerScripts\uninstall_database_objects.ps1 -Server $Server -Database $Database -ServerObjectsOnly $ServerObjectsOnly -DropDatabase $DropDatabase -curScriptLocation $curScriptLoc > $installerLogFile
+$scriptresult = $?
+
+$curtime = Get-Date -format s
+
+if ($scriptresult -eq $true) {
+    Write-Host "Uninstall completed successfully" -backgroundcolor black -foregroundcolor green
+}
+else {
+    Write-Host "Uninstall failed. Please consult $installerLogFile for more details." -backgroundcolor black -foregroundcolor red
+    Write-Host "Uninstall aborted at: " + $curtime -foregroundcolor red -backgroundcolor black
+}

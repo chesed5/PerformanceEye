@@ -10,7 +10,7 @@ CREATE PROCEDURE [AutoWho].[ViewLongBatches]
 					email@TBD.com
 					@sqlcrossjoin
 					sqlcrossjoin.wordpress.com
-					https://github.com/amorelli005/PerformanceEye
+					https://github.com/AaronMorelli/PerformanceEye
 
 	PURPOSE: Called by the sp_LongRequests user-facing procedure. 
 		The logic below pulls data from the various AutoWho tables, based on parameter values, and combines
@@ -915,7 +915,7 @@ BEGIN TRY
 		sss.objectid,
 		sss.datalen_batch,
 		sss.stmt_text
-	FROM CorePECore.SQLStmtStore sss
+	FROM CorePE.SQLStmtStore sss
 	WHERE sss.PKSQLStmtStoreID IN (
 		SELECT DISTINCT fk.FKSQLStmtStoreID
 		FROM #sarcache fk
@@ -924,7 +924,7 @@ BEGIN TRY
 	;
 
 	SET @lv__errorloc = N'Declare Stmt Store Cursor';
-	DECLARE resolveSQLStmtStore CURSOR LOCAL FORWARD_ONLY STATIC READ_ONLY FOR
+	DECLARE resolveSQLStmtStore CURSOR LOCAL FAST_FORWARD FOR
 	SELECT 
 		PKSQLStmtStoreID,
 		[sql_handle],
@@ -1048,7 +1048,7 @@ BEGIN TRY
 	)
 	SELECT ibs.PKInputBufferStoreID,
 		ibs.InputBuffer
-	FROM CorePECore.InputBufferStore ibs
+	FROM CorePE.InputBufferStore ibs
 	WHERE ibs.PKInputBufferStoreID IN (
 		SELECT DISTINCT fk.FKInputBufferStoreID 
 		FROM #sarcache fk
@@ -1057,7 +1057,7 @@ BEGIN TRY
 	;
 
 	SET @lv__errorloc = N'Declare IB cursor';
-	DECLARE resolveInputBufferStore  CURSOR LOCAL FORWARD_ONLY STATIC READ_ONLY FOR 
+	DECLARE resolveInputBufferStore  CURSOR LOCAL FAST_FORWARD FOR 
 	SELECT 
 		PKInputBufferStoreID,
 		inputbuffer
@@ -1153,7 +1153,7 @@ BEGIN TRY
 			qpss.PKQueryPlanStmtStoreID,
 			qpss.plan_handle,
 			qpss.query_plan
-		FROM CorePECore.QueryPlanStmtStore qpss
+		FROM CorePE.QueryPlanStmtStore qpss
 		WHERE qpss.PKQueryPlanStmtStoreID IN (
 			SELECT DISTINCT fk.FKQueryPlanStmtStoreID
 			FROM #sarcache fk
@@ -1162,7 +1162,7 @@ BEGIN TRY
 		;
 
 		SET @lv__errorloc = N'Declare query plan cursor';
-		DECLARE resolveQueryPlanStmtStore CURSOR LOCAL FORWARD_ONLY STATIC READ_ONLY FOR 
+		DECLARE resolveQueryPlanStmtStore CURSOR LOCAL FAST_FORWARD FOR 
 		SELECT qpss.PKQueryPlanStmtStoreID,
 			qpss.plan_handle,
 			qpss.query_plan_text
@@ -1206,7 +1206,7 @@ BEGIN TRY
 							--DROP TABLE dbo.largeQPbcpout
 							SELECT query_plan
 							INTO dbo.largeQPbcpout
-							FROM CorePECore.QueryPlanStmtStore q
+							FROM CorePE.QueryPlanStmtStore q
 							WHERE q.PKQueryPlanStmtStoreID = ' + CONVERT(NVARCHAR(20),@PKQueryPlanStmtStoreID) + N'
 							--then from a command line:
 							bcp dbo.largeQPbcpout out c:\largeqpxmlout.sqlplan -c -S. -T

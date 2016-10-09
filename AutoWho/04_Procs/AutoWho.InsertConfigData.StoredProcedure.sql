@@ -4,13 +4,13 @@ SET QUOTED_IDENTIFIER ON
 GO
 CREATE PROCEDURE [AutoWho].[InsertConfigData] 
 /*   
-	PROCEDURE:		CorePE.InsertConfigData
+	PROCEDURE:		AutoWho.InsertConfigData
 
 	AUTHOR:			Aaron Morelli
 					email@TBD.com
 					@sqlcrossjoin
 					sqlcrossjoin.wordpress.com
-					https://github.com/amorelli005/PerformanceEye
+					https://github.com/AaronMorelli/PerformanceEye
 
 	PURPOSE: Runs at install time and inserts configuration data.
 
@@ -199,10 +199,6 @@ BEGIN
 
 	INSERT INTO CorePE.ProcessingTimes (Label, LastProcessedTime)
 	SELECT N'AutoWhoLastLockResolve', NULL;
-
-	INSERT INTO CorePE.Version ([Version], EffectiveDate)
-		SELECT '0.5', GETDATE()
-	;
 
 	RETURN 0;
 END

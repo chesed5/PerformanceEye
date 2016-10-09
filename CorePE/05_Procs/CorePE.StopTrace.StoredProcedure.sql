@@ -15,7 +15,7 @@ CREATE PROCEDURE [CorePE].[StopTrace]
 	PURPOSE: This is the "more graceful" way to stop a CorePE trace (than CorePE.StopTrace). @AbortCode
 		can be used to show whether the trace was stopped with any sort of problem. 
 
-		@Utility is either "AutoWho" or "ServerEye" at this time. 
+		@Utility is either "AutoWho" "ServerEye", or "Profiler" at this time. 
 
 		@TraceID cannot be NULL (unlike AutoWho.AbortTrace), since it is assumed that whatever started the trace
 		will keep the handle (ID) to that trace until ready to stop that trace.

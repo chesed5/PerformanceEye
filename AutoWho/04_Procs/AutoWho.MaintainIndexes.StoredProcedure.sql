@@ -10,7 +10,7 @@ CREATE PROCEDURE [AutoWho].[MaintainIndexes]
 					email@TBD.com
 					@sqlcrossjoin
 					sqlcrossjoin.wordpress.com
-					https://github.com/amorelli005/PerformanceEye
+					https://github.com/AaronMorelli/PerformanceEye
 
 	PURPOSE: Evaluates CorePE and AutoWho indexes for whether they should be rebuilt or not. 
 
@@ -174,7 +174,7 @@ BEGIN
 	FROM #AutoWhoIndexToEval;
 
 
-	DECLARE iterateAutoWhoIndexes CURSOR FOR
+	DECLARE iterateAutoWhoIndexes CURSOR LOCAL FAST_FORWARD FOR
 	SELECT 
 		t.SchemaName,
 		t.TableName,
@@ -362,7 +362,7 @@ BEGIN
 
 
 
-	DECLARE iterateScores CURSOR FOR
+	DECLARE iterateScores CURSOR LOCAL FAST_FORWARD FOR
 	SELECT SchemaName, TableName, IndexName
 	FROM #AutoWhoIndexRebuildScore t
 	WHERE t.RebuildScore >= 5;

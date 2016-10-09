@@ -1,5 +1,5 @@
 #####
-# PRODUCT:    PerformanceEye  https://github.com/amorelli005/PerformanceEye
+# PRODUCT:    PerformanceEye  https://github.com/AaronMorelli/PerformanceEye
 # PROCEDURE:	PerformanceEye_Installer.ps1
 #
 # AUTHOR:			Aaron Morelli
@@ -52,6 +52,8 @@ param (
 [Parameter(Mandatory=$false)][string]$HoursToKeep,
 [Parameter(Mandatory=$false)][string]$DBExists
 ) 
+
+$ErrorActionPreference = "Stop"
 
 Write-Host "PerformanceEye v0.5" -backgroundcolor black -foregroundcolor cyan
 Write-Host "MIT License" -backgroundcolor black -foregroundcolor cyan
@@ -131,4 +133,16 @@ Write-Host $outmsg -backgroundcolor black -foregroundcolor cyan
 
 CD $curScriptLoc 
 
-powershell.exe -noprofile -file .\InstallerScripts\install_database_objects.ps1 -Server $Server -Database $Database -HoursToKeep $HoursToKeep -DBExists $DBExists -curScriptLocation $curScriptLoc > $installerLogFile
+powershell.exe -noprofile -command .\InstallerScripts\install_database_objects.ps1 -Server $Server -Database $Database -HoursToKeep $HoursToKeep -DBExists $DBExists -curScriptLocation $curScriptLoc > $installerLogFile
+$scriptresult = $?
+
+$curtime = Get-Date -format s
+
+if ($scriptresult -eq $true) {
+    Write-Host "Installation completed successfully" -backgroundcolor black -foregroundcolor green
+}
+else {
+    Write-Host "Installation failed. Please consult $installerLogFile for more details." -backgroundcolor black -foregroundcolor red
+    Write-Host "Installation aborted at: " + $curtime -foregroundcolor red -backgroundcolor black
+}
+

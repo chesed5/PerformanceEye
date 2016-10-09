@@ -1,5 +1,5 @@
 #####
-# PRODUCT:    PerformanceEye  https://github.com/amorelli005/PerformanceEye
+# PRODUCT:    PerformanceEye  https://github.com/AaronMorelli/PerformanceEye
 # PROCEDURE:	install_database_objects.ps1
 #
 # AUTHOR: Aaron Morelli
@@ -51,6 +51,8 @@ param (
 [Parameter(Mandatory=$true)][string]$curScriptLocation
 ) 
 
+$ErrorActionPreference = "Stop"
+
 $curtime = Get-Date -format s
 $outmsg = $curtime + "------> Parameter Validation complete. Proceeding with installation on server " + $Server + ", Database " + $Database + ", HoursToKeep " + $HoursToKeep
 Write-Host $outmsg -backgroundcolor black -foregroundcolor cyan
@@ -64,6 +66,7 @@ Import-Module SqlPs
 Write-Host "" -foregroundcolor cyan -backgroundcolor black
 
 $core_parent = $curScriptLocation + "CorePE\"
+$core_config = $core_parent + "CorePEConfig.sql"
 $core_schemas = $core_parent + "CreateSchemas.sql"
 $core_tables = $core_parent + "01_Tables"
 $core_triggerstypes = $core_parent + "02_TriggersAndTypes"
@@ -117,6 +120,7 @@ catch [system.exception] {
 	Write-Host "$_" -foregroundcolor red -backgroundcolor black
     $curtime = Get-Date -format s
 	Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+    throw "Installation failed"
 	break
 }
 
@@ -141,8 +145,9 @@ if ( $DBExists -eq "N" ) {
     catch [system.exception] {
     	Write-Host "Error occurred in InstallerScripts\CreatePEDatabase.sql: " -foregroundcolor red -backgroundcolor black
     	Write-Host "$_" -foregroundcolor red -backgroundcolor black
-     $curtime = Get-Date -format s
+        $curtime = Get-Date -format s
     	Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+        throw "Installation failed"
     	break
     }
 }
@@ -164,8 +169,9 @@ else {
     catch [system.exception] {
     	Write-Host "Error occurred in InstallerScripts\DeleteDatabaseObjects.sql: " -foregroundcolor red -backgroundcolor black
     	Write-Host "$_" -foregroundcolor red -backgroundcolor black
-     $curtime = Get-Date -format s
+        $curtime = Get-Date -format s
     	Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+        throw "Installation failed"
     	break
     }
 
@@ -192,6 +198,7 @@ catch [system.exception] {
 	Write-Host "$_" -foregroundcolor red -backgroundcolor black
     $curtime = Get-Date -format s
 	Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+    throw "Installation failed"
 	break
 }
 
@@ -215,6 +222,7 @@ catch [system.exception] {
 	Write-Host "$_" -foregroundcolor red -backgroundcolor black
     $curtime = Get-Date -format s
 	Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+    throw "Installation failed"
 	break
 } # Schemas
 
@@ -238,10 +246,11 @@ try {
 		}
 }
 catch [system.exception] {
-	Write-Host "Error occurred when creating core tables: " -foregroundcolor red -backgroundcolor black
+	Write-Host "Error occurred when creating core tables, in file: " + $curScript -foregroundcolor red -backgroundcolor black
 	Write-Host "$_" -foregroundcolor red -backgroundcolor black
     $curtime = Get-Date -format s
 	Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+    throw "Installation failed"
 	break
 }  # end of Core Tables block
 
@@ -265,10 +274,11 @@ try {
 		}
 }
 catch [system.exception] {
-	Write-Host "Error occurred when creating core triggers and types: " -foregroundcolor red -backgroundcolor black
+	Write-Host "Error occurred when creating core triggers and types, in file: " + $curScript -foregroundcolor red -backgroundcolor black
 	Write-Host "$_" -foregroundcolor red -backgroundcolor black
     $curtime = Get-Date -format s
 	Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+    throw "Installation failed"
 	break
 }  # end of Core triggers and types block
 
@@ -296,14 +306,39 @@ try {
 		}
 }
 catch [system.exception] {
-	Write-Host "Error occurred when creating core procedures: " -foregroundcolor red -backgroundcolor black
+	Write-Host "Error occurred when creating core procedures, in file " + $curScript -foregroundcolor red -backgroundcolor black
 	Write-Host "$_" -foregroundcolor red -backgroundcolor black
     $curtime = Get-Date -format s
 	Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+    throw "Installation failed"
 	break
 }  # end of Core procedures
 
 Write-Host "" -foregroundcolor cyan -backgroundcolor black
+
+$curtime = Get-Date -format s
+$outmsg = $curtime + "------> Configuring core objects"
+Write-Host $outmsg -backgroundcolor black -foregroundcolor cyan
+
+# AutoWho config
+try {
+	invoke-sqlcmd -inputfile $core_config -serverinstance $Server -database $Database -QueryTimeout 65534 -AbortOnError -Verbose -outputsqlerrors $true
+	#In Windows 2012 R2, we are ending up in the SQLSERVER:\ prompt, when really we want to be in the file system provider. Doing a simple "CD" command gets us back there
+	CD $curScriptLocation
+
+	Write-Host "Finished core configuration" -foregroundcolor cyan -backgroundcolor black
+}
+catch [system.exception] {
+	Write-Host "Error occurred during core configuration: " -foregroundcolor red -backgroundcolor black
+	Write-Host "$_" -foregroundcolor red -backgroundcolor black
+    $curtime = Get-Date -format s
+	Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+    throw "Installation failed"
+	break
+} # core config
+
+Write-Host "" -foregroundcolor cyan -backgroundcolor black
+
 
 $curtime = Get-Date -format s
 $outmsg = $curtime + "------> Creating AutoWho tables"
@@ -322,10 +357,11 @@ try {
 		}
 }
 catch [system.exception] {
-	Write-Host "Error occurred when creating AutoWho tables: " -foregroundcolor red -backgroundcolor black
+	Write-Host "Error occurred when creating AutoWho tables, in file: " + $curScript -foregroundcolor red -backgroundcolor black
 	Write-Host "$_" -foregroundcolor red -backgroundcolor black
     $curtime = Get-Date -format s
 	Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+    throw "Installation failed"
 	break
 }  # end of AutoWho tables block
 
@@ -348,10 +384,11 @@ try {
 		}
 }
 catch [system.exception] {
-	Write-Host "Error occurred when creating AutoWho triggers: " -foregroundcolor red -backgroundcolor black
+	Write-Host "Error occurred when creating AutoWho triggers, in file: " + $curScript -foregroundcolor red -backgroundcolor black
 	Write-Host "$_" -foregroundcolor red -backgroundcolor black
     $curtime = Get-Date -format s
 	Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+    throw "Installation failed"
 	break
 }  # end of AutoWho functions
 
@@ -374,10 +411,11 @@ try {
 		}
 }
 catch [system.exception] {
-	Write-Host "Error occurred when creating AutoWho views: " -foregroundcolor red -backgroundcolor black
+	Write-Host "Error occurred when creating AutoWho views, in file: " + $curScript -foregroundcolor red -backgroundcolor black
 	Write-Host "$_" -foregroundcolor red -backgroundcolor black
     $curtime = Get-Date -format s
 	Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+    throw "Installation failed"
 	break
 }  # end of AutoWho views
 
@@ -400,10 +438,11 @@ try {
 		}
 }
 catch [system.exception] {
-	Write-Host "Error occurred when creating AutoWho procedures: " -foregroundcolor red -backgroundcolor black
+	Write-Host "Error occurred when creating AutoWho procedures, in file: " + $curScript -foregroundcolor red -backgroundcolor black
 	Write-Host "$_" -foregroundcolor red -backgroundcolor black
     $curtime = Get-Date -format s
 	Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+    throw "Installation failed"
 	break
 }  # end of AutoWho procedures
 
@@ -424,10 +463,11 @@ try {
 	Write-Host "Finished AutoWho configuration" -foregroundcolor cyan -backgroundcolor black
 }
 catch [system.exception] {
-	Write-Host "Error occurred during AutoWho configuration: " -foregroundcolor red -backgroundcolor black
+	Write-Host "Error occurred during AutoWho configuration, in file: " + $curScript -foregroundcolor red -backgroundcolor black
 	Write-Host "$_" -foregroundcolor red -backgroundcolor black
     $curtime = Get-Date -format s
 	Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+    throw "Installation failed"
 	break
 } # AutoWho config
 
@@ -455,6 +495,7 @@ catch [system.exception] {
 	Write-Host "$_" -foregroundcolor red -backgroundcolor black
     $curtime = Get-Date -format s
 	Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+    throw "Installation failed"
 	break
 }
 
@@ -480,6 +521,7 @@ catch [system.exception] {
 	Write-Host "$_" -foregroundcolor red -backgroundcolor black
     $curtime = Get-Date -format s
 	Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+    throw "Installation failed"
 	break
 }
 
@@ -512,6 +554,7 @@ catch [system.exception] {
 	Write-Host "$_" -foregroundcolor red -backgroundcolor black
     $curtime = Get-Date -format s
 	Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+    throw "Installation failed"
 	break
 }
 
@@ -543,6 +586,7 @@ catch [system.exception] {
 	Write-Host "$_" -foregroundcolor red -backgroundcolor black
     $curtime = Get-Date -format s
 	Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+    throw "Installation failed"
 	break
 }
 
@@ -574,6 +618,7 @@ catch [system.exception] {
 	Write-Host "$_" -foregroundcolor red -backgroundcolor black
     $curtime = Get-Date -format s
 	Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+    throw "Installation failed"
 	break
 }
 
@@ -606,6 +651,7 @@ catch [system.exception] {
 	Write-Host "$_" -foregroundcolor red -backgroundcolor black
     $curtime = Get-Date -format s
 	Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+    throw "Installation failed"
 	break
 }
 
@@ -638,6 +684,7 @@ catch [system.exception] {
 	Write-Host "$_" -foregroundcolor red -backgroundcolor black
     $curtime = Get-Date -format s
 	Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+    throw "Installation failed"
 	break
 }
 
@@ -664,6 +711,7 @@ catch [system.exception] {
 	Write-Host "$_" -foregroundcolor red -backgroundcolor black
     $curtime = Get-Date -format s
 	Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+    throw "Installation failed"
 	break
 } # Trace Master job
 
@@ -688,6 +736,7 @@ catch [system.exception] {
 	Write-Host "$_" -foregroundcolor red -backgroundcolor black
     $curtime = Get-Date -format s
 	Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+    throw "Installation failed"
 	break
 } # AutoWho job
 

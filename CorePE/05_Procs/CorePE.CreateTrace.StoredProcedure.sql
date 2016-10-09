@@ -10,14 +10,14 @@ CREATE PROCEDURE [CorePE].[CreateTrace]
 					email@TBD.com
 					@sqlcrossjoin
 					sqlcrossjoin.wordpress.com
-					https://github.com/amorelli005/PerformanceEye
+					https://github.com/AaronMorelli/PerformanceEye
 
 	PURPOSE: Creates an entry in the CorePE.Traces table for the @Utility specified. At this time the
 		Traces table is little more than a log table to show when various traces have started or stopped. 
 
-		@Utility is either "AutoWho" or "ServerEye" at this point in time.
+		@Utility is either "AutoWho", "ServerEye", or "Profiler" at this point in time.
 
-		@Type is currently always 'Background" (the value is passed in via the AutoWho or ServerEye Executor).
+		@Type is currently always 'Background" for values passed in via the AutoWho or ServerEye Executor).
 		The intention with this parameter is to separate background traces (i.e. started by the jobs) with
 		traces started by some sort of user-facing procedure. In the future, users may be given an interface
 		to start/stop instances of a ServerEye trace that collects some or all of the various system DMVs
@@ -25,14 +25,18 @@ CREATE PROCEDURE [CorePE].[CreateTrace]
 		data. The value here would be that the user could set specific start & stop times for the trace
 		instead of relying on the intervals present with the standard Background ServerEye trace.
 
+		For "Profiler" traces created with [PerformanceEye].[ProfilerTraceBySPID_Start], it is always 'Foreground'
+
 		@IntendedStopTime shows when AutoWho or ServerEye *planned* for the trace to stop. It may have stopped
 		a few seconds off from that time, or may be many hours off if a human aborted the trace or something
-		went wrong. 
+		went wrong. A "Profiler" trace just uses a dummy date of 6 hours into the future. (i.e. Profiler traces
+		should *not* be long-lived
 
 	OUTSTANDING ISSUES: None at this time.
 
     CHANGE LOG:	
 				2016-04-24	Aaron Morelli		Final run-through and commenting
+				2016-10-06	Aaron Morelli		Add functionality for "Profiler" trace info
 
 	MIT License
 
@@ -63,7 +67,11 @@ EXEC CorePE.CreateTrace @Utility=N'', @Type=N'', @IntendedStopTime='2016-04-24 2
 (
 	@Utility			NVARCHAR(20),
 	@Type				NVARCHAR(20),
-	@IntendedStopTime	DATETIME=NULL
+	@IntendedStopTime	DATETIME=NULL,
+	@Payload_int		INT=NULL,
+	@Payload_bigint		BIGINT=NULL,
+	@Payload_decimal	DECIMAL(28,9)=NULL,
+	@Payload_nvarchar	NVARCHAR(MAX)=NULL
 )
 AS
 BEGIN
@@ -94,9 +102,12 @@ BEGIN
 	
 		INSERT INTO CorePE.[Traces]
 			([Utility], [Type],  --Take default: CreateTime
-				IntendedStopTime, StopTime, AbortCode)
+				IntendedStopTime, StopTime, AbortCode,
+				Payload_int, Payload_bigint, Payload_decimal, Payload_nvarchar
+			)
 		SELECT @Utility,@Type, 
-				@IntendedStopTime, NULL, NULL;
+				@IntendedStopTime, NULL, NULL,
+				@Payload_int, @Payload_bigint, @Payload_decimal, @Payload_nvarchar;
 
 		SET @LastIdentity = SCOPE_IDENTITY();
 

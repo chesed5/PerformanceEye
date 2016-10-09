@@ -10,7 +10,7 @@ CREATE PROCEDURE [AutoWho].[ResolveWaitIDs]
 					email@TBD.com
 					@sqlcrossjoin
 					sqlcrossjoin.wordpress.com
-					https://github.com/amorelli005/PerformanceEye
+					https://github.com/AaronMorelli/PerformanceEye
 
 	PURPOSE: Reviews data in TAW for a specific time range (typically the last 15 minutes) and does some post-processing on the data
 		to prep it for more useful consumption by the viewers.
@@ -730,7 +730,7 @@ BEGIN TRY
 			SET LOCK_TIMEOUT 50;
 
 			SET @errorloc = N'Define latch cursor';
-			DECLARE resolvelatchtags CURSOR STATIC LOCAL FORWARD_ONLY FOR 
+			DECLARE resolvelatchtags CURSOR LOCAL FAST_FORWARD FOR 
 			SELECT DISTINCT resource_dbid, context_database_id, wait_special_number, 
 				resource_associatedobjid, wait_special_tag, resolved_dbname
 			FROM #tasks_and_waits taw
@@ -1204,7 +1204,7 @@ BEGIN TRY
 			SET LOCK_TIMEOUT 50;
 
 			SET @errorloc = N'Pat2_curs1';
-			DECLARE iterateHobtDBs CURSOR FOR 
+			DECLARE iterateHobtDBs CURSOR LOCAL FAST_FORWARD FOR 
 			SELECT DISTINCT resolved_dbname, resource_dbid
 			FROM #UniqueHobtDBs
 			ORDER BY resolved_dbname
@@ -1371,7 +1371,7 @@ BEGIN TRY
 
 			--Now resolve locks
 			SET @errorloc = N'Pat3 curs';
-			DECLARE resolvelockdata CURSOR STATIC LOCAL FORWARD_ONLY FOR 
+			DECLARE resolvelockdata CURSOR LOCAL FAST_FORWARD FOR 
 			SELECT DISTINCT 
 				resource_dbid, context_database_id,
 				resource_associatedobjid,

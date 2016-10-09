@@ -10,7 +10,12 @@ CREATE TABLE [CorePE].[Traces](
 	[IntendedStopTime] [datetime] NOT NULL,
 	[StopTime] [datetime] NULL,
 	[AbortCode] [nchar](1) NULL,
-	[TerminationMessage] [nvarchar](4000) NULL,
+	[TerminationMessage] [nvarchar](MAX) NULL,
+	[Payload_int] [int] NULL,
+	[Payload_bigint] [bigint] NULL, 
+	[Payload_decimal] [decimal](28,9) NULL,
+	[Payload_datetime] [datetime] NULL,
+	[Payload_nvarchar] [nvarchar](MAX) NULL
  CONSTRAINT [PK_AutoWhoTraces] PRIMARY KEY CLUSTERED 
 (
 	[TraceID] ASC

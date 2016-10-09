@@ -14,7 +14,7 @@ CREATE PROCEDURE [CorePE].[AbortTrace]
 
 	PURPOSE: Provides an interface for humans or programs to stop an AutoWho or ServerEye trace. 
 
-	@Utility is either AutoWho or ServerEye at this time.
+	@Utility is either AutoWho or ServerEye at this time. "Profiler" traces do not abort
 
 	@TraceID is the ID # of the trace, or if NULL, the MAX(ID) from the trace table for the Utility value, which
 		is likely to be the current trace.
@@ -139,6 +139,7 @@ BEGIN
 		END
 	END
 
+	/* Uncomment when ServerEye dev gets serious
 	IF @Utility = N'ServerEye'
 	BEGIN 
 		IF UPPER(ISNULL(@PreventAllDay,N'Z')) NOT IN (N'N',N'Y')
@@ -164,6 +165,7 @@ BEGIN
 																-- that row will prevent this wrapper proc from running the rest of the day
 		END
 	END
+	*/
 
 	--TODO: as other utilities are added, their "Abort Trace" logic goes here
 

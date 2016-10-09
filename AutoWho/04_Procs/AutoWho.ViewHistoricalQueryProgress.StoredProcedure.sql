@@ -10,7 +10,7 @@ CREATE PROCEDURE [AutoWho].[ViewHistoricalQueryProgress]
 					email@TBD.com
 					@sqlcrossjoin
 					sqlcrossjoin.wordpress.com
-					https://github.com/amorelli005/PerformanceEye
+					https://github.com/AaronMorelli/PerformanceEye
 
 	PURPOSE: Called by the sp_QueryProgress user-facing procedure when historical/AutoWho data is requested. 
 		The logic below pulls data from the various AutoWho tables, based on parameter values, and combines

@@ -10,7 +10,7 @@ CREATE PROCEDURE [AutoWho].[ViewHistoricalSessions]
 					email@TBD.com
 					@sqlcrossjoin
 					sqlcrossjoin.wordpress.com
-					https://github.com/amorelli005/PerformanceEye
+					https://github.com/AaronMorelli/PerformanceEye
 
 	PURPOSE: Called by the sp_SessionViewer user-facing procedure when historical/AutoWho data is requested. 
 		The logic below pulls data from the various AutoWho tables, based on parameter values, and combines
@@ -693,7 +693,7 @@ FROM AutoWho.DimWaitType dwt INNER JOIN AutoWho.TasksAndWaits taw WITH (NOLOCK) 
 		)
 	;
 
-	DECLARE resolveSQLStmtStore CURSOR LOCAL FORWARD_ONLY STATIC READ_ONLY FOR
+	DECLARE resolveSQLStmtStore CURSOR LOCAL FAST_FORWARD FOR
 	SELECT 
 		PKSQLStmtStoreID,
 		[sql_handle],
@@ -833,7 +833,7 @@ FROM AutoWho.DimWaitType dwt INNER JOIN AutoWho.TasksAndWaits taw WITH (NOLOCK) 
 			AND fk.FKSQLBatchStoreID = sbs.PKSQLBatchStoreID
 		);
 
-		DECLARE resolveSQLBatchStore CURSOR LOCAL FORWARD_ONLY STATIC READ_ONLY FOR 
+		DECLARE resolveSQLBatchStore CURSOR LOCAL FAST_FORWARD FOR 
 		SELECT 
 			sbs.PKSQLBatchStoreID,
 			sbs.sql_handle,
@@ -959,7 +959,7 @@ FROM AutoWho.DimWaitType dwt INNER JOIN AutoWho.TasksAndWaits taw WITH (NOLOCK) 
 		)
 		;
 
-		DECLARE resolveInputBufferStore  CURSOR LOCAL FORWARD_ONLY STATIC READ_ONLY FOR 
+		DECLARE resolveInputBufferStore  CURSOR LOCAL FAST_FORWARD FOR 
 		SELECT 
 			PKInputBufferStoreID,
 			inputbuffer
@@ -1029,7 +1029,7 @@ FROM AutoWho.DimWaitType dwt INNER JOIN AutoWho.TasksAndWaits taw WITH (NOLOCK) 
 		)
 		;
 
-		DECLARE resolveQueryPlanStmtStore CURSOR LOCAL FORWARD_ONLY STATIC READ_ONLY FOR 
+		DECLARE resolveQueryPlanStmtStore CURSOR LOCAL FAST_FORWARD FOR 
 		SELECT qpss.PKQueryPlanStmtStoreID,
 			qpss.plan_handle,
 			qpss.query_plan_text
@@ -1118,7 +1118,7 @@ FROM AutoWho.DimWaitType dwt INNER JOIN AutoWho.TasksAndWaits taw WITH (NOLOCK) 
 		)
 		;
 
-		DECLARE resolveQueryPlanBatchStore CURSOR LOCAL FORWARD_ONLY STATIC READ_ONLY FOR 
+		DECLARE resolveQueryPlanBatchStore CURSOR LOCAL FAST_FORWARD FOR 
 		SELECT qpbs.PKQueryPlanBatchStoreID,
 			qpbs.plan_handle,
 			qpbs.query_plan_text

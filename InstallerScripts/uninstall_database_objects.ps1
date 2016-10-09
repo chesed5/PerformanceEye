@@ -1,5 +1,5 @@
 #####
-# PRODUCT:    PerformanceEye  https://github.com/amorelli005/PerformanceEye
+# PRODUCT:    PerformanceEye  https://github.com/AaronMorelli/PerformanceEye
 # PROCEDURE:	uninstall_database_objects.ps1
 #
 # AUTHOR: Aaron Morelli
@@ -51,6 +51,8 @@ param (
 [Parameter(Mandatory=$true)][string]$curScriptLocation
 ) 
 
+$ErrorActionPreference = "Stop"
+
 $curtime = Get-Date -format s
 $outmsg = $curtime + "------> Parameter Validation complete. Proceeding with uninstall on server " + $Server + ", Database " + $Database + ", ServerObjectsOnly " + $ServerObjectsOnly + ", DropDatabase " + $DropDatabase
 Write-Host $outmsg -backgroundcolor black -foregroundcolor cyan
@@ -90,7 +92,8 @@ if ($ServerObjectsOnly -eq "N") {
 	   Write-Host "Error occurred in InstallerScripts\DBExistenceCheck.sql: " -foregroundcolor red -backgroundcolor black
 	   Write-Host "$_" -foregroundcolor red -backgroundcolor black
         $curtime = Get-Date -format s
-	   Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+	   Write-Host "Aborting uninstall, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+       throw "Uninstall failed"
 	   break
     }
 
@@ -111,8 +114,9 @@ if ($ServerObjectsOnly -eq "N") {
     catch [system.exception] {
     	Write-Host "Error occurred in InstallerScripts\DeleteDatabaseObjects.sql: " -foregroundcolor red -backgroundcolor black
     	Write-Host "$_" -foregroundcolor red -backgroundcolor black
-     $curtime = Get-Date -format s
-    	Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+        $curtime = Get-Date -format s
+    	Write-Host "Aborting uninstall, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+        throw "Uninstall failed"
     	break
     }
     
@@ -132,7 +136,8 @@ if ($ServerObjectsOnly -eq "N") {
 	       Write-Host "Error occurred in InstallerScripts\DropPEDatabase.sql: " -foregroundcolor red -backgroundcolor black
 	       Write-Host "$_" -foregroundcolor red -backgroundcolor black
             $curtime = Get-Date -format s
-	       Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+	       Write-Host "Aborting uninstall, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+           throw "Uninstall failed"
 	       break
         }
     }
@@ -157,7 +162,8 @@ catch [system.exception] {
     Write-Host "Error occurred in InstallerScripts\DeleteServerObjects.sql: " -foregroundcolor red -backgroundcolor black
     Write-Host "$_" -foregroundcolor red -backgroundcolor black
     $curtime = Get-Date -format s
-    Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+    Write-Host "Aborting uninstall, abort time: " + $curtime -foregroundcolor red -backgroundcolor black
+    throw "Uninstall failed"
     break
 }
 

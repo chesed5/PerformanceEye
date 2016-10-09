@@ -10,7 +10,7 @@ CREATE PROCEDURE [AutoWho].[ObtainSessionsForThresholdIgnore]
 					email@TBD.com
 					@sqlcrossjoin
 					sqlcrossjoin.wordpress.com
-					https://github.com/amorelli005/PerformanceEye
+					https://github.com/AaronMorelli/PerformanceEye
 
 	PURPOSE: The AutoWho collector uses "threshold" parameters to determine whether certain, more-expensive
 		activities (collecting query plans, input buffers, tran or lock info, etc) are required. If no SPIDs
@@ -104,7 +104,7 @@ BEGIN
 			@tmpDBID SMALLINT,
 			@DynSQL VARCHAR(MAX);
 
-	DECLARE iterateSPIDs CURSOR FOR 
+	DECLARE iterateSPIDs CURSOR LOCAL FAST_FORWARD FOR 
 	SELECT SessionID, DatabaseID 
 	FROM @SPIDsToIB;
 
