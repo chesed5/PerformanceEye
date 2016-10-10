@@ -2,7 +2,7 @@ SET ANSI_NULLS ON
 GO
 SET QUOTED_IDENTIFIER ON
 GO
-CREATE PROCEDURE [PerformanceEye].[ProfilerTraceBySPID_Start]
+ALTER PROCEDURE [PerformanceEye].[ProfilerTraceBySPID_Start]
 /*   
 	PROCEDURE:		PerformanceEye.ProfilerTraceBySPID_Start
 
@@ -52,7 +52,7 @@ CREATE PROCEDURE [PerformanceEye].[ProfilerTraceBySPID_Start]
 
 To Execute
 ------------------------
-minimal param usage:
+--minimal param usage:
 DECLARE @lmsg NVARCHAR(MAX);
 EXEC [PerformanceEye].[ProfilerTraceBySPID_Start] @TraceCategories=N'Performance,Stored Procedures', 
 												@IncludePerfWarnings=N'Y',
@@ -70,7 +70,7 @@ Then to stop the trace, call:
 	@TraceFileDirectory		NVARCHAR(210)	= NULL,		--Default to placing this with the SQL black box trace file or the master db (in that order)
 	@TraceCategories		NVARCHAR(256)	= N'',		-- a list of categories from CorePE.ProfilerTraceEvents
 	@IncludePerfWarnings	NCHAR(1)		= N'N',		-- Y/N -- if Y, will include the various perf warnings even if the "Errors and Warnings" category is not chosen
-	@EventGroup				NVARCHAR(40)	= N'',		-- if NULL or "", defaults to "Default". Otherwise, looks in the CorePE.ProfilerTraceEvents table to pull that set
+	@EventGroup				NVARCHAR(40)	= N'',		-- if NULL or "", defaults to "Default". Otherwise, looks in the CorePE.ProfilerTraceEvents table to pull that set of events
 
 	--Filters
 	@SPID					INT				= NULL,		--Defaults to the current SPID. 0 means no filtering by SPID. Otherwise, must be positive
@@ -84,8 +84,8 @@ Then to stop the trace, call:
 	@ErrorNumExclude		NVARCHAR(256)	= N'',		--comma-separated list of error #'s to exclude.
 
 	@SafetyStop				SMALLINT		= 60,		-- How long (in minutes) to let the trace stay open.
-	@TID					INT OUTPUT,					--The trace ID
-	@ReturnMessage			NVARCHAR(MAX) OUTPUT
+	@TID					INT				= NULL OUTPUT,		--The trace ID
+	@ReturnMessage			NVARCHAR(MAX)	= NULL OUTPUT
 )
 AS
 BEGIN
@@ -1191,7 +1191,7 @@ BEGIN TRY
 
 		UPDATE CorePE.Traces
 		SET Payload_bigint = @TraceID,
-			Payload_datetime = GETDATE()		--trace create time; can create to sys.traces.start_time
+			Payload_datetime = GETDATE()		--trace create time; can correlate to sys.traces.start_time
 		WHERE TraceID = @CorePETraceHandle;
 
 		SET @ReturnMessage = N'Trace created successfully.';

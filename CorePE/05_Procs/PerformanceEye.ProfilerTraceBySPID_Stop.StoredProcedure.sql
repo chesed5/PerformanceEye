@@ -58,10 +58,15 @@ EXEC [PerformanceEye].[ProfilerTraceBySPID_Start] @TraceCategories=N'Performance
 												@Duration=250000,	--250 ms will ignore lots of unimportant statements
 												@ReturnMessage=@lmsg OUTPUT
 												;
+PRINT ISNULL(@lmsg, N'<null>');
 	--get more categories from SELECT DISTINCT category_name FROM CorePE.ProfilerTraceEvents
 
 Then to stop the trace, call:
-
+DECLARE @lmsg NVARCHAR(MAX);
+EXEC [PerformanceEye].[ProfilerTraceBySPID_Stop] @SPID=NULL,		--will use the current to find the sys.traces ID via a CorePE mapping table
+												@ReturnMessage=@lmsg OUTPUT
+												;
+PRINT ISNULL(@lmsg, N'<null>');
 */
 (
 	@TID				INT				= NULL,		--user can either stop the trace via a TID or via SPID
@@ -72,7 +77,7 @@ Then to stop the trace, call:
 													-- found indirectly (via CorePE.Traces & a SPID #), how do we know the sys.traces
 													-- trace is the one we really are to stop? So there is an element of uncertainty
 													-- here that we need to user to agree upon.
-	@ReturnMessage 		NVARCHAR(MAX)	= NULL
+	@ReturnMessage 		NVARCHAR(MAX)	= NULL OUTPUT
 )
 AS
 BEGIN
@@ -88,11 +93,10 @@ BEGIN
 
 	IF @TID IS NULL AND @SPID IS NULL
 	BEGIN
-		SET @ReturnMessage = N'Either the @TID or @SPID parameters must be specified (as a positive integer).';
-		RETURN -1;
+		SET @SPID = @@SPID;
 	END
 
-	IF ISNULL(@TID,-99) < 1
+	IF ISNULL(@TID,99) < 1
 	BEGIN
 		SET @ReturnMessage = N'If specified, the @TID parameter must be a positive integer.';
 		RETURN -2;
