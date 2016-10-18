@@ -4,6 +4,8 @@ InstallationLogs/*.txt
 
 masterobjs/*.sql
 
+!masterobjs/sp_PE_FileUsage.sql
+
 !masterobjs/sp_PE_JobMatrix.sql
 
 !masterobjs/sp_PE_LongRequests__TEMPLATE.sql

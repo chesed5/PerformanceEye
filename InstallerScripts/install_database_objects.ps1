@@ -502,10 +502,10 @@ catch [system.exception] {
 Write-Host "" -foregroundcolor cyan -backgroundcolor black
 
 
-$masterproc_MDF = $masterprocs_parent + "sp_PE_MDFUsed.sql"
+$masterproc_MDF = $masterprocs_parent + "sp_PE_FileUsage.sql"
 
 $curtime = Get-Date -format s
-$outmsg = $curtime + "------> Creating sp_PE_MDFUsed"
+$outmsg = $curtime + "------> Creating sp_PE_FileUsage"
 Write-Host $outmsg -backgroundcolor black -foregroundcolor cyan
 
 try {
@@ -513,11 +513,11 @@ try {
 	#In Windows 2012 R2, we are ending up in the SQLSERVER:\ prompt, when really we want to be in the file system provider. Doing a simple "CD" command gets us back there
 	CD $curScriptLocation
 
-	Write-Host "Finished creating sp_PE_MDFUsed" -foregroundcolor cyan -backgroundcolor black
+	Write-Host "Finished creating sp_PE_FileUsage" -foregroundcolor cyan -backgroundcolor black
 
 }
 catch [system.exception] {
-	Write-Host "Error occurred while creating sp_PE_MDFUsed: " -foregroundcolor red -backgroundcolor black
+	Write-Host "Error occurred while creating sp_PE_FileUsage: " -foregroundcolor red -backgroundcolor black
 	Write-Host "$_" -foregroundcolor red -backgroundcolor black
     $curtime = Get-Date -format s
 	Write-Host "Aborting installation, abort time: " + $curtime -foregroundcolor red -backgroundcolor black

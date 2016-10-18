@@ -42,9 +42,9 @@ BEGIN
 END
 IF EXISTS (SELECT * FROM sys.procedures p 
 			WHERE p.schema_id = schema_id('dbo') 
-			AND p.name = N'sp_PE_MDFUsed')
+			AND p.name = N'sp_PE_FileUsage')
 BEGIN
-	DROP PROCEDURE dbo.sp_PE_MDFused;
+	DROP PROCEDURE dbo.sp_PE_FileUsage;
 END
 IF EXISTS (SELECT * FROM sys.procedures p 
 			WHERE p.schema_id = schema_id('dbo') 
