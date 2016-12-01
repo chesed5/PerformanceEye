@@ -80,16 +80,18 @@ To Execute
 	@AllocType					NVARCHAR(20)		= N'',			-- "ALL", "INROW", "OVERFLOW", "LOB"		only used when a specific object/index is chosen
 
 	--return formatting
-	@BitmapReturn				NVARCHAR(128)		= N'',			-- Empty string, "TOTAL" (total alloc & unalloc, more useful for BCM/DCM), 
-																	--  "MAP" (file broken down into chunks), "ALLOC" or "UNALLOC" number of extents by runlength.  
+	@BitmapReturn				NVARCHAR(128)		= N'',			-- TODO: "TOTAL" (total alloc & unalloc, more useful for BCM/DCM), "RAW" (essentially the raw output of DBCC PAGE in table form)
+																	--  "MAP" (file broken down into chunks), "ALLOC" or "UNALLOC" number of extents by runlength,
 	@SegmentSize				INT					= 0,			-- 0 (auto-logic: ~5% of the data file size, w/max up to 32 GB), positive int (megabytes) between 32 MB and 32 GB
 																	-- Only applicable when @BitmapReturn = "MAP"
 
-	@Pivot						NCHAR(1)			= N'Y',			-- If Y, then multiple files and/or multiple alloc units are printed out left-to-right than just a vertical result set
-	@Progress					NCHAR(1)			= N'N',			-- If @BitmapType is not an empty string, prints out progress between each bitmap page examined.
-	@Help						NVARCHAR(20)		= N'N',
+	@Pivot						NCHAR(1)			= N'Y',			--TODO: If Y, then multiple files and/or multiple alloc units are printed out left-to-right than just a vertical result set
+	@Progress					NCHAR(1)			= N'N',			--TODO: If @BitmapType is not an empty string, prints out progress between each bitmap page examined.
+	@Help						NVARCHAR(20)		= N'N',			--TODO: 
 	@Directives					NVARCHAR(512)		= N'',
-	@Debug						INT					= 0
+	@Debug						INT					= 0				-- =1, writes bitmaps parsed into the #ChainLog table and then selects upon exception or completion
+																	-- TODO: finish putting a SELECT into the rest of the exceptions in the IAM logic.
+																	-- TODO: put this into the exceptions in the GAM logic
 )
 AS
 BEGIN
@@ -111,6 +113,7 @@ BEGIN
 		@lv__afterdt						DATETIME,
 		@lv__slownessthreshold				SMALLINT,
 		@lv__DynSQL							NVARCHAR(MAX),
+		@lv__DynParms						NVARCHAR(MAX),
 
 		--SQL inj protection
 		@lv__StringLength					INT,
@@ -125,6 +128,7 @@ BEGIN
 		@lv__FilterObjID					INT,
 		@lv__FilterIndexID					INT,
 		@lv__numDBFiles						INT,
+		@lv__numFGs							INT,
 
 		--display
 		@lv__ChunkSize_MB					INT,
@@ -217,16 +221,19 @@ BEGIN
 		FileID								INT,
 		[FileLogicalName]					NVARCHAR(128),
 		[FilePhysicalName]					NVARCHAR(2048),
+
+		--sizing
 		[FileSize_pages]					BIGINT,
 		[FileUsedSize_pages]				BIGINT,
-		[TotalDataSize_pages]				BIGINT,
-		[TotalUsedSize_pages]				BIGINT,
+
+		[VolumeTotalBytes]					BIGINT,
+		[VolumeAvailableBytes]				BIGINT,
+
 		[VolumeMountPoint]					NVARCHAR(512),
 		[VolumeID]							NVARCHAR(512),
 		[VolumeLogicalName]					NVARCHAR(512),
 		[FileSystemType]					NVARCHAR(128),
-		[VolumeTotalBytes]					BIGINT,
-		[VolumeAvailableBytes]				BIGINT,
+
 		[VolumeIsReadOnly]					INT,
 		[VolumeIsCompressed]				INT,
 		[VolumeSupportsCompression]			INT,
@@ -273,6 +280,22 @@ BEGIN
 		--TODO: should we add fields here for mapping the actual GAM interval start/end pages to the display start/end boundary points?
 	);
 
+	CREATE TABLE #ChainLog (
+		RecordTimestamp				DATETIME2(7),
+		BitmapType					NVARCHAR(20), 
+		LoopIteration_zerobased		INT,
+		allocation_unit_id			BIGINT,
+		allocation_unit_type		NVARCHAR(20), 
+		BitmapPageFileID			INT,
+		BitmapPagePageID			BIGINT,
+		m_type						NVARCHAR(256),
+		MetadataObjectId			NVARCHAR(256),
+		MetadataIndexId				NVARCHAR(256),
+		sequenceNumber				NVARCHAR(256),
+		m_prevPage					NVARCHAR(256),
+		m_nextPage					NVARCHAR(256)
+	);
+
 	SET @Help = UPPER(ISNULL(@Help,N'Z'));
 	IF @Directives LIKE N'%wrapper%'
 	BEGIN
@@ -306,8 +329,17 @@ EXEC sp_PE_FileUsage	TODO: params here
 		RETURN -1;
 	END
 
-	-- we need to protect against SQL injection. For now, we only support alphanumeric characters, plus spaces and brackets (to support QUOTENAME-type input)
-	-- We already LTRIM/RTRIM'd the string, now loop through and look for characters other than these.
+	/* Even though our sp_ is meant to be called inside a given user database, and DB_NAME() returns the correct DB name, 
+		many of the system views still show the contents of the master database. Thus, we need to construct dynamic SQL
+		and "USE" to that database to obtain the contents of our query. 
+		To protect against SQL injection, we take a 2-pronged approach:
+			1) We search our input strings for characters *NOT* in an approved list and then raise an error if we find any.
+				For now, our approved list is a-z, A-Z, 0-9, right and left bracket ("[" "]"), period, underscore, and space.
+				We may expand in the future if requested.
+			2) We *always* use sp_executesql. 
+				It is possible that just using sp_executesql would be enough (my initial injection tests aren't successful
+				when using that interface), but we are going to play things pretty conservative for now.
+	*/
 	SET @lv__StringPosition = 1;
 
 	IF @ObjectName IS NOT NULL
@@ -322,8 +354,8 @@ EXEC sp_PE_FileUsage	TODO: params here
 											91,93,95							-- N'[', N']', N'_'
 											)
 
-				--may expand to: AND @lv__CurrChar NOT IN (32, 33, 35, 36, 37, 38, 42, 43,  --N' ', N'!', N'#', N'$', N'%', N'&', N'*', N'+', 
-				--						 46, 58, 61, 91,93,95							--N'.', N':', N'=', N'[', N']', N'_'
+				--may expand to: AND @lv__CurrChar NOT IN (33, 35, 36, 37, 38, 42, 43,  --N'!', N'#', N'$', N'%', N'&', N'*', N'+', 
+				--						 58, 61								--N':', N'='
 				--						 )
 			BEGIN
 				RAISERROR('Only alphanumeric, space, period, underscore, and [ and ] characters are allowed in the @ObjectName parameter.', 16, 1);
@@ -354,8 +386,8 @@ EXEC sp_PE_FileUsage	TODO: params here
 											91,93,95							-- N'[', N']', N'_'
 											)
 
-				--may expand to: AND @lv__CurrChar NOT IN (32, 33, 35, 36, 37, 38, 42, 43,  --N' ', N'!', N'#', N'$', N'%', N'&', N'*', N'+', 
-				--						 46, 58, 61, 91,93,95							--N'.', N':', N'=', N'[', N']', N'_'
+				--may expand to: AND @lv__CurrChar NOT IN (33, 35, 36, 37, 38, 42, 43,  --N'!', N'#', N'$', N'%', N'&', N'*', N'+', 
+				--						 58, 61											--N':', N'='
 				--						 )
 			BEGIN
 				RAISERROR('Only alphanumeric, space, period, underscore, and [ and ] characters are allowed in the @ObjectName parameter.', 16, 1);
@@ -424,9 +456,9 @@ EXEC sp_PE_FileUsage	TODO: params here
 
 	IF @BitmapType IN (N'GAM', N'BCM', N'DCM', N'IAM')
 	BEGIN
-		IF @BitmapReturn NOT IN (N'TOTAL', N'MAP', N'ALLOC', N'UNALLOC')
+		IF @BitmapReturn NOT IN (N'TOTAL', N'MAP', N'ALLOC', N'UNALLOC', N'RAW')
 		BEGIN
-			RAISERROR('If @BitmapType is specified, parameter @BitmapReturn must be either TOTAL, MAP, ALLOC, or UNALLOC.', 16, 1);
+			RAISERROR('If @BitmapType is specified, parameter @BitmapReturn must be either TOTAL, MAP, ALLOC, UNALLOC, or RAW.', 16, 1);
 			RETURN -1;
 		END
 
@@ -597,10 +629,14 @@ EXEC sp_PE_FileUsage	TODO: params here
 				(object_id, object_name, type)
 			SELECT o.object_id, o.name, o.type
 			FROM sys.objects o
-			WHERE o.object_id = ' + CONVERT(NVARCHAR(20),@ObjectID) + N'
-			';
+			WHERE o.object_id = @ObjectID;';
 
-			EXEC (@lv__DynSQL);
+			SET @lv__DynParms = N'@ObjectID INT';
+
+			--Do *NOT* use this format: EXEC (@lv__DynSQL);
+			EXEC sys.sp_executesql @stmt = @lv__DynSQL,
+			      @params = @lv__DynParms,
+				  @ObjectID = @ObjectID;
 
 			IF NOT EXISTS (SELECT * FROM #t__ObjectRetrieve o
 						WHERE o.type IN (N'U', N'V')
@@ -612,16 +648,19 @@ EXEC sp_PE_FileUsage	TODO: params here
 		END
 		ELSE
 		BEGIN
-			--we already tested for sql injection above. Pass @ObjectName to OBJECT_ID() function
 			SET @lv__DynSQL = N'USE ' + QUOTENAME(@lv__DBName) + N';
 			INSERT INTO #t__ObjectRetrieve 
 				(object_id, object_name, type)
 			SELECT o.object_id, o.name, o.type
 			FROM sys.objects o
-			WHERE o.object_id = object_id(' + @ObjectName + N')
-			';
+			WHERE o.object_id = object_id(@ObjectName);';
 
-			EXEC (@lv__DynSQL);
+			SET @lv__DynParms = N'@ObjectName NVARCHAR(128)';
+
+			--Do *NOT* use this format: EXEC (@lv__DynSQL);
+			EXEC sys.sp_executesql @stmt = @lv__DynSQL,
+			      @params = @lv__DynParms,
+				  @ObjectName = @ObjectName;
 
 			IF NOT EXISTS (SELECT * FROM #t__ObjectRetrieve o
 						WHERE o.type IN (N'U', N'V')
@@ -648,10 +687,14 @@ EXEC sp_PE_FileUsage	TODO: params here
 			FROM sys.indexes i
 				INNER JOIN #t__ObjectRetrieve o
 					ON i.object_id = o.object_id
-			WHERE i.index_id = ' + CONVERT(NVARCHAR(20),@IndexID) + N'
-			';
+			WHERE i.index_id = @IndexID;';
 
-			EXEC (@lv__DynSQL);
+			SET @lv__DynParms = N'@IndexID INT';
+
+			--Do *NOT* use this format: EXEC (@lv__DynSQL);
+			EXEC sys.sp_executesql @stmt = @lv__DynSQL,
+			      @params = @lv__DynParms,
+				  @IndexID = @IndexID;
 
 			IF NOT EXISTS (SELECT * FROM #t__IndexRetrieve i
 						WHERE i.type IN (0,1,2)
@@ -663,7 +706,6 @@ EXEC sp_PE_FileUsage	TODO: params here
 		END
 		ELSE
 		BEGIN
-			--We already tested for sql injection above
 			SET @lv__DynSQL = N'USE ' + QUOTENAME(@lv__DBName) + N';
 			INSERT INTO #t__IndexRetrieve 
 				(object_id, index_id, index_name, type)
@@ -671,10 +713,14 @@ EXEC sp_PE_FileUsage	TODO: params here
 			FROM sys.indexes i
 				INNER JOIN #t__ObjectRetrieve o
 					ON i.object_id = o.object_id
-			WHERE i.name = ' + @IndexName + N'
-			';
+			WHERE i.name = @IndexName;';
 
-			EXEC (@lv__DynSQL);
+			SET @lv__DynParms = N'@IndexName NVARCHAR(128)';
+
+			--Do *NOT* use this format: EXEC (@lv__DynSQL);
+			EXEC sys.sp_executesql @stmt = @lv__DynSQL,
+			      @params = @lv__DynParms,
+				  @IndexName = @IndexName;
 			
 			IF NOT EXISTS (SELECT * FROM #t__IndexRetrieve i
 						WHERE i.type IN (0,1,2)
@@ -762,7 +808,7 @@ EXEC sp_PE_FileUsage	TODO: params here
 				INNER JOIN sys.partitions p
 					ON p.object_id = o.object_id
 					AND p.index_id = i.index_id
-					AND p.partition_number = ' + CONVERT(NVARCHAR(20),@PartitionNumber) + N'
+					AND p.partition_number = @PartitionNumber
 				INNER JOIN sys.allocation_units au
 					ON au.container_id = CASE WHEN au.type IN (1,3) THEN p.hobt_id
 												WHEN au.type = 2 THEN p.partition_id
@@ -783,7 +829,12 @@ EXEC sp_PE_FileUsage	TODO: params here
 						ELSE N'1=1'
 						END + N';'
 
-		EXEC (@lv__DynSQL);
+		SET @lv__DynParms = N'@PartitionNumber INT';
+
+		--Do *NOT* use this format: EXEC (@lv__DynSQL);
+		EXEC sys.sp_executesql @stmt = @lv__DynSQL,
+		      @params = @lv__DynParms,
+			  @PartitionNumber = @PartitionNumber;
 
 		IF NOT EXISTS (SELECT * FROM #t__AURetrieve au)
 		BEGIN
@@ -960,9 +1011,7 @@ EXEC sp_PE_FileUsage	TODO: params here
 	;
 	';
 
-	EXEC (@lv__DynSQL);
-
-	SET @lv__numDBFiles = (SELECT COUNT(*) FROM #t__HeaderResultSet);
+	EXEC sys.sp_executesql @stmt = @lv__DynSQL;
 
 	IF @lv__numDBFiles > 1
 	BEGIN
@@ -1051,7 +1100,8 @@ gamloop:
 
 			INSERT INTO #DBCCPageOutput
 				(ParentObject, [Object], [Field], [Value])
-			EXEC (@lv__DynSQL);
+			--EXEC (@lv__DynSQL);
+			EXEC sys.sp_executesql @stmt = @lv__DynSQL;
 
 			SELECT 
 				@lv__CurrentPageType_str = t.Value
@@ -1182,6 +1232,7 @@ gamloop:
 	-- afterloops
 	goto afterloops
 
+
 iamloop:
 	DECLARE followIAMChain CURSOR LOCAL FAST_FORWARD FOR
 	SELECT 
@@ -1203,7 +1254,7 @@ iamloop:
 		SET @lv__IAMDoneLooping = N'N';
 		SET @lv__IAMval__PrevFilePage_code = N'(0:0)';
 
-		WHILE @lv__IAMDoneLooping = N'N'
+		WHILE @lv__IAMDoneLooping = N'N'		--for each IAM page in that alloc unit
 		BEGIN
 			TRUNCATE TABLE #DBCCPageOutput;
 
@@ -1213,9 +1264,13 @@ iamloop:
 
 			INSERT INTO #DBCCPageOutput
 				(ParentObject, [Object], [Field], [Value])
-			EXEC (@lv__DynSQL);
+			--EXEC (@lv__DynSQL);
+			EXEC sys.sp_executesql @stmt = @lv__DynSQL;
 
-			--First, validate page type
+			--Let's obtain the various values before we test & raiserror on them, so we can save
+			-- them off to the log table if requested
+
+			--m_type
 			SET @lv__CurrentPageType_str = NULL;
 			SELECT 
 				@lv__CurrentPageType_str = LTRIM(RTRIM(t.Value))
@@ -1224,6 +1279,69 @@ iamloop:
 			AND t.Field = N'm_type'
 			;
 
+			--Metadata: ObjectId
+			SET @lv__IAMval__ObjID_str = NULL;
+			SELECT 
+				@lv__IAMval__ObjID_str = LTRIM(RTRIM(t.Value))
+			FROM #DBCCPageOutput t 
+			WHERE t.ParentObject LIKE N'%PAGE HEADER%'
+			AND t.Field = N'Metadata: ObjectId'
+			;
+
+			--Metadata: IndexId
+			SET @lv__IAMval__IdxID_str = NULL;
+			SELECT 
+				@lv__IAMval__IdxID_str = LTRIM(RTRIM(t.Value))
+			FROM #DBCCPageOutput t 
+			WHERE t.ParentObject LIKE N'%PAGE HEADER%'
+			AND t.Field = N'Metadata: IndexId'
+			;
+
+			--m_prevPage
+			SET @lv__IAMval__PrevFilePage_page = NULL;
+			SELECT 
+				@lv__IAMval__PrevFilePage_page = LTRIM(RTRIM(t.Value))
+			FROM #DBCCPageOutput t 
+			WHERE t.ParentObject LIKE N'%PAGE HEADER%'
+			AND t.Field = N'm_prevPage'
+			;
+
+			--sequenceNumber
+			SET @lv__IAMval__sequenceNumber_str = NULL;
+			SELECT 
+				@lv__IAMval__sequenceNumber_str = LTRIM(RTRIM(t.Value))
+			FROM #DBCCPageOutput t 
+			WHERE t.ParentObject LIKE N'%PAGE HEADER%'
+			AND t.Field = N'sequenceNumber'
+			;
+
+			--m_nextPage
+			SET @lv__IAMval__NextFilePage_str = NULL;
+			SELECT 
+				@lv__IAMval__NextFilePage_str = LTRIM(RTRIM(t.Value))
+			FROM #DBCCPageOutput t 
+			WHERE t.ParentObject LIKE N'%PAGE HEADER%'
+			AND t.Field = N'm_nextPage'
+			;
+
+			IF @Debug = 1
+			BEGIN
+				INSERT INTO #ChainLog (
+					RecordTimestamp, BitmapType, LoopIteration_zerobased,
+					allocation_unit_id, allocation_unit_type,
+					BitmapPageFileID, BitmapPagePageID,
+					m_type, MetadataObjectId, MetadataIndexId,
+					sequenceNumber, m_prevPage, m_nextPage
+				)
+				SELECT SYSDATETIME(), @BitmapType, @lv__LoopIteration_zerobased, 
+					@lv__CurrentAllocUnitID, @lv__CurrentAllocUnitType, 
+					@lv__CurrentFileID, @lv__CurrentBitmapPageID,
+					@lv__CurrentPageType_str, @lv__IAMval__ObjID_str, @lv__IAMval__IdxID_str, 
+					@lv__IAMval__sequenceNumber_str, @lv__IAMval__PrevFilePage_page, @lv__IAMval__NextFilePage_str
+				;
+			END
+
+			--Now, validate!
 			BEGIN TRY
 				SET @lv__CurrentPageType_int = CONVERT(INT, @lv__CurrentPageType_str);
 			END TRY
@@ -1256,14 +1374,6 @@ iamloop:
 			END
 
 			--Next, validate that this page belongs to the object/index we think it does
-			SET @lv__IAMval__ObjID_str = NULL;
-			SELECT 
-				@lv__IAMval__ObjID_str = LTRIM(RTRIM(t.Value))
-			FROM #DBCCPageOutput t 
-			WHERE t.ParentObject LIKE N'%PAGE HEADER%'
-			AND t.Field = N'Metadata: ObjectId'
-			;
-
 			IF ISNULL(@lv__IAMval__ObjID_str,N'<null1>') <> ISNULL(CONVERT(NVARCHAR(20),@lv__FilterObjID),N'<null2>')
 			BEGIN
 				CLOSE followIAMChain;
@@ -1278,14 +1388,6 @@ iamloop:
 				RAISERROR(@lv__ErrorText,16,1);
 				RETURN -1;
 			END
-
-			SET @lv__IAMval__IdxID_str = NULL;
-			SELECT 
-				@lv__IAMval__IdxID_str = LTRIM(RTRIM(t.Value))
-			FROM #DBCCPageOutput t 
-			WHERE t.ParentObject LIKE N'%PAGE HEADER%'
-			AND t.Field = N'Metadata: IndexId'
-			;
 
 			IF ISNULL(@lv__IAMval__IdxID_str,N'<null1>') <> ISNULL(CONVERT(NVARCHAR(20),@lv__FilterIndexID),N'<null2>')
 			BEGIN
@@ -1303,18 +1405,15 @@ iamloop:
 			END
 
 			--validate m_prevpage
-			SET @lv__IAMval__PrevFilePage_page = NULL;
-			SELECT 
-				@lv__IAMval__PrevFilePage_page = LTRIM(RTRIM(t.Value))
-			FROM #DBCCPageOutput t 
-			WHERE t.ParentObject LIKE N'%PAGE HEADER%'
-			AND t.Field = N'm_prevPage'
-			;
-
 			IF ISNULL(@lv__IAMval__PrevFilePage_page,N'<null1>') <> @lv__IAMval__PrevFilePage_code
 			BEGIN
 				CLOSE followIAMChain;
 				DEALLOCATE followIAMChain;
+
+				IF @Debug = 1
+				BEGIN
+					SELECT * FROM #ChainLog ORDER BY RecordTimestamp ASC;
+				END
 
 				SET @lv__ErrorText = N'Unexpected value for m_prevPage field. Found ' + 
 					ISNULL(@lv__IAMval__PrevFilePage_page,N'<null>') + 
@@ -1327,14 +1426,6 @@ iamloop:
 			END
 
 			--Validate sequenceNumber
-			SET @lv__IAMval__sequenceNumber_str = NULL;
-			SELECT 
-				@lv__IAMval__sequenceNumber_str = LTRIM(RTRIM(t.Value))
-			FROM #DBCCPageOutput t 
-			WHERE t.ParentObject LIKE N'%PAGE HEADER%'
-			AND t.Field = N'sequenceNumber'
-			;
-
 			IF ISNULL(@lv__IAMval__sequenceNumber_str,N'<null1>') <> CONVERT(NVARCHAR(20),@lv__LoopIteration_zerobased)
 			BEGIN
 				CLOSE followIAMChain;
@@ -1405,22 +1496,13 @@ iamloop:
 				AllocState = Alloc1 
 			FROM Final
 			;
-			/****** Actual work! *****/
+			/****** End of Actual work! *****/
 
 			SET @lv__IAMval__PrevFilePage_code = N'(' + 
 					ISNULL(CONVERT(NVARCHAR(20),@lv__CurrentFileID),N'<null>') + N':' + 
 					ISNULL(CONVERT(NVARCHAR(20),@lv__CurrentBitmapPageID),N'<null>') + N')';
 
 			--Parse out next page: m_nextPage
-			SET @lv__IAMval__NextFilePage_str = NULL;
-			SELECT 
-				@lv__IAMval__NextFilePage_str = LTRIM(RTRIM(t.Value))
-			FROM #DBCCPageOutput t 
-			WHERE t.ParentObject LIKE N'%PAGE HEADER%'
-			AND t.Field = N'm_nextPage'
-			;
-			SET @lv__IAMval__NextFilePage_str = ISNULL(@lv__IAMval__NextFilePage_str,N'');
-
 			IF CHARINDEX(N'(', @lv__IAMval__NextFilePage_str) <= 0
 				OR CHARINDEX(N')', @lv__IAMval__NextFilePage_str) <= 0
 				OR CHARINDEX(N':', @lv__IAMval__NextFilePage_str) <= 0
@@ -1436,7 +1518,8 @@ iamloop:
 				RAISERROR(@lv__ErrorText,16,1);
 				RETURN -1;
 			END
-
+			
+			SET @lv__IAMval__NextFilePage_str = ISNULL(@lv__IAMval__NextFilePage_str,N'');
 			IF @lv__IAMval__NextFilePage_str = N'(0:0)'
 			BEGIN
 				SET @lv__IAMDoneLooping = N'Y';
@@ -1483,6 +1566,12 @@ iamloop:
 					RAISERROR(@lv__ErrorText,16,1);
 					RETURN -1;
 				END
+				ELSE
+				BEGIN
+					--Set the next file/page combo
+					SET @lv__CurrentFileID = @lv__NextFileID;
+					SET @lv__CurrentBitmapPageID = @lv__NextPageID;
+				END
 			END
 
 			SET @lv__LoopIteration_zerobased = @lv__LoopIteration_zerobased + 1;
@@ -1522,15 +1611,379 @@ iamloop:
 
 afterloops:
 
-	/*
-	SELECT g.*
-	FROM #GAMLoopExtentData g
-	ORDER BY g.GAMPage_FileID, g.GAMPage_PageID
-	*/
+	IF @Summary = N'Y'
+	BEGIN
+		SET @lv__numDBFiles = (SELECT COUNT(*) FROM #t__AllDBFiles WHERE type = 0);
+		SET @lv__numFGs = (SELECT COUNT(*)
+							FROM (SELECT DISTINCT FileGroupName 
+								FROM #t__HeaderResultSet 
+								WHERE FileGroupName <> N'n/a') ss0
+							);
+		IF @lv__numDBFiles = 1 AND @lv__numFGs = 1
+		BEGIN
+			SELECT 
+				FGID = FileGroupID, FGName = FileGroupName, 
+				FileID, FileLogicalName, 
+				Size_MB = CONVERT(NVARCHAR(20),CONVERT(MONEY,FileSize_pages*8./1024.),1), 
+				Used_MB = CONVERT(NVARCHAR(20),CONVERT(MONEY,FileUsedSize_pages*8./1024.),1),
+				Used_Pct = CASE WHEN FileSize_pages = 0 THEN N'n/a'
+							ELSE  CONVERT(NVARCHAR(20),CONVERT(DECIMAL(28,2),100.*(FileUsedSize_pages*8./1024.) / (FileSize_pages*8./1024.))) + N'%'
+							END,
+				VolSize_MB = CONVERT(NVARCHAR(20),CONVERT(MONEY,VolumeTotalBytes/1024./1024.),1),
+				VolFree_MB = CONVERT(NVARCHAR(20),CONVERT(MONEY,VolumeAvailableBytes/1024./1024.),1),
+				VolUsed_MB = CONVERT(NVARCHAR(20),CONVERT(MONEY,(VolumeTotalBytes-VolumeAvailableBytes)/1024./1024.),1),
+				VolUsed_Pct = CASE WHEN VolumeTotalBytes = 0 THEN N'n/a'
+								ELSE 
+									CONVERT(NVARCHAR(20),
+												CONVERT(DECIMAL(28,2),
+														100.*(
+																((VolumeTotalBytes-VolumeAvailableBytes)*1.) / (VolumeTotalBytes*1.)
+															)
+														)
+											) + N'%'
+								END,
+				FilePhysicalName, 
+				VolAttr =	CASE WHEN FileSystemType = N'NTFS' THEN N'' ELSE FileSystemType + N', ' END + 
+							CASE WHEN VolumeIsReadOnly = 1 THEN N'Read-only, ' ELSE N'' END + 
+							CASE WHEN VolumeIsCompressed = 1 THEN N'Compressed, ' ELSE N'' END,
+				VolFeatureSupport = CASE WHEN VolumeSupportsCompression = 1 THEN N'Compression, ' ELSE N'' END + 
+										CASE WHEN VolumeSupportsAlternateStreams = 1 THEN N'Alt Streams, ' ELSE N'' END + 
+										CASE WHEN VolumeSupportsSparseFiles = 1 THEN N'Sparse files, ' ELSE N'' END,
+				VolumeMountPoint,
+				VolLogicalName = VolumeLogicalName,
+				VolumeID
+			FROM #t__HeaderResultSet t
+				INNER JOIN #t__AllDBFiles f
+					ON t.FileID = f.file_id
+			ORDER BY FGID, FileID;
+		END -- only 1 File, only 1 FG
+		ELSE
+		BEGIN
+			--more than 1 of either file or filegroup
+			IF @lv__numDBFiles = @lv__numFGs		--1 file per FG
+			BEGIN
+				;WITH base AS (
+					SELECT 
+						FGID = FileGroupID, FGName = FileGroupName, 
+						FileID, FileLogicalName, 
+							--need for the next CTE
+							FileSize_pages, FileUsedSize_pages, 
 
-	SELECT * 
-	FROM #IAMLoopExtentData
-	ORDER BY IAMPage_FileID, IAMPage_PageID;
+						Size_MB = CONVERT(NVARCHAR(20),CONVERT(MONEY,FileSize_pages*8./1024.),1), 
+						Used_MB = CONVERT(NVARCHAR(20),CONVERT(MONEY,FileUsedSize_pages*8./1024.),1),
+						Used_Pct = CASE WHEN FileSize_pages = 0 THEN N'n/a'
+									ELSE  CONVERT(NVARCHAR(20),CONVERT(DECIMAL(28,2),100.*(FileUsedSize_pages*8./1024.) / (FileSize_pages*8./1024.))) + N'%'
+									END,
+						VolSize_MB = CONVERT(NVARCHAR(20),CONVERT(MONEY,VolumeTotalBytes/1024./1024.),1),
+						VolFree_MB = CONVERT(NVARCHAR(20),CONVERT(MONEY,VolumeAvailableBytes/1024./1024.),1),
+						VolUsed_MB = CONVERT(NVARCHAR(20),CONVERT(MONEY,(VolumeTotalBytes-VolumeAvailableBytes)/1024./1024.),1),
+						VolUsed_Pct = CASE WHEN VolumeTotalBytes = 0 THEN N'n/a'
+								ELSE 
+									CONVERT(NVARCHAR(20),
+												CONVERT(DECIMAL(28,2),
+														100.*(
+																((VolumeTotalBytes-VolumeAvailableBytes)*1.) / (VolumeTotalBytes*1.)
+															)
+														)
+											) + N'%'
+								END,
+
+						FilePhysicalName, 
+						VolAttr =	CASE WHEN FileSystemType = N'NTFS' THEN N'' ELSE FileSystemType + N', ' END + 
+									CASE WHEN VolumeIsReadOnly = 1 THEN N'Read-only, ' ELSE N'' END + 
+									CASE WHEN VolumeIsCompressed = 1 THEN N'Compressed, ' ELSE N'' END,
+						VolFeatureSupport = CASE WHEN VolumeSupportsCompression = 1 THEN N'Compression, ' ELSE N'' END + 
+												CASE WHEN VolumeSupportsAlternateStreams = 1 THEN N'Alt Streams, ' ELSE N'' END + 
+												CASE WHEN VolumeSupportsSparseFiles = 1 THEN N'Sparse files, ' ELSE N'' END,
+						VolumeMountPoint,
+						VolLogicalName = VolumeLogicalName,
+						VolumeID
+					FROM #t__HeaderResultSet t
+						INNER JOIN #t__AllDBFiles f
+							ON t.FileID = f.file_id
+				),
+				Middle AS (
+					SELECT *,
+						--SizeFG_pages = SUM(FileSize_pages) OVER (PARTITION BY FGName), 
+						--UsedFG_pages = SUM(FileUsedSize_pages) OVER (PARTITION BY FGName), 
+						SizeDB_pages = SUM(FileSize_pages) OVER (), 
+						UsedDB_pages = SUM(FileUsedSize_pages) OVER ()
+					FROM base
+				)
+				SELECT FGID, FGName, FileID, FileLogicalName,
+					Size_MB, Used_MB, Used_Pct,
+
+					--SizeFG_MB = CONVERT(DECIMAL(28,2),SizeFG_pages*8./1024.),
+					--UsedFG_MB = CONVERT(DECIMAL(28,2),UsedFG_pages*8./1024.),
+					--UsedFG_Pct = CASE WHEN SizeFG_pages = 0 THEN N'n/a'
+					--			ELSE CONVERT(NVARCHAR(20),CONVERT(DECIMAL(28,2),100.*(UsedFG_pages*8./1024.) / (SizeFG_pages*8./1024.))) + N'%'
+					--			END,
+					SizeDB_MB = CONVERT(NVARCHAR(20),CONVERT(MONEY,SizeDB_pages*8./1024.),1),
+					UsedDB_MB = CONVERT(NVARCHAR(20),CONVERT(MONEY,UsedDB_pages*8./1024.),1),
+					UsedDB_Pct = CASE WHEN SizeDB_pages = 0 THEN N'n/a'
+								ELSE CONVERT(NVARCHAR(20),CONVERT(DECIMAL(28,2),100.*(UsedDB_pages*8./1024.) / (SizeDB_pages*8./1024.))) + N'%'
+								END,
+					VolSize_MB, VolFree_MB, VolUsed_MB, VolUsed_Pct,
+					FilePhysicalName,
+					VolAttr,
+					VolFeatureSupport,
+					VolumeMountPoint,
+					VolLogicalName,
+					VolumeID
+				FROM Middle 
+				ORDER BY FGID, FileID;
+				;
+			END		--IF @lv__numDBFiles = @lv__numFGs		--1 file per FG
+			ELSE
+			BEGIN
+				;WITH base AS (
+					SELECT 
+						FGID = FileGroupID, FGName = FileGroupName, 
+						FileID, FileLogicalName, 
+							--need for the next CTE
+							FileSize_pages, FileUsedSize_pages, 
+
+						Size_MB = CONVERT(NVARCHAR(20),CONVERT(MONEY,FileSize_pages*8./1024.),1), 
+						Used_MB = CONVERT(NVARCHAR(20),CONVERT(MONEY,FileUsedSize_pages*8./1024.),1),
+						Used_Pct = CASE WHEN FileSize_pages = 0 THEN N'n/a'
+									ELSE  CONVERT(NVARCHAR(20),CONVERT(DECIMAL(28,2),100.*(FileUsedSize_pages*8./1024.) / (FileSize_pages*8./1024.))) + N'%'
+									END,
+						VolSize_MB = CONVERT(NVARCHAR(20),CONVERT(MONEY,VolumeTotalBytes/1024./1024.),1),
+						VolFree_MB = CONVERT(NVARCHAR(20),CONVERT(MONEY,VolumeAvailableBytes/1024./1024.),1),
+						VolUsed_MB = CONVERT(NVARCHAR(20),CONVERT(MONEY,(VolumeTotalBytes-VolumeAvailableBytes)/1024./1024.),1),
+						VolUsed_Pct = CASE WHEN VolumeTotalBytes = 0 THEN N'n/a'
+										ELSE 
+											CONVERT(NVARCHAR(20),
+														CONVERT(DECIMAL(28,2),
+																100.*(
+																		((VolumeTotalBytes-VolumeAvailableBytes)*1.) / (VolumeTotalBytes*1.)
+																	)
+																)
+													) + N'%'
+										END,
+
+						FilePhysicalName, 
+						VolAttr =	CASE WHEN FileSystemType = N'NTFS' THEN N'' ELSE FileSystemType + N', ' END + 
+									CASE WHEN VolumeIsReadOnly = 1 THEN N'Read-only, ' ELSE N'' END + 
+									CASE WHEN VolumeIsCompressed = 1 THEN N'Compressed, ' ELSE N'' END,
+						VolFeatureSupport = CASE WHEN VolumeSupportsCompression = 1 THEN N'Compression, ' ELSE N'' END + 
+												CASE WHEN VolumeSupportsAlternateStreams = 1 THEN N'Alt Streams, ' ELSE N'' END + 
+												CASE WHEN VolumeSupportsSparseFiles = 1 THEN N'Sparse files, ' ELSE N'' END,
+						VolumeMountPoint,
+						VolLogicalName = VolumeLogicalName,
+						VolumeID
+					FROM #t__HeaderResultSet t
+						INNER JOIN #t__AllDBFiles f
+							ON t.FileID = f.file_id
+				),
+				Middle AS (
+					SELECT *,
+						SizeFG_pages = SUM(FileSize_pages) OVER (PARTITION BY FGName), 
+						UsedFG_pages = SUM(FileUsedSize_pages) OVER (PARTITION BY FGName), 
+						SizeDB_pages = SUM(FileSize_pages) OVER (), 
+						UsedDB_pages = SUM(FileUsedSize_pages) OVER ()
+					FROM base
+				)
+				SELECT FGID, FGName, FileID, FileLogicalName,
+					Size_MB, Used_MB, Used_Pct,
+
+					SizeFG_MB = CONVERT(NVARCHAR(20),CONVERT(MONEY,SizeFG_pages*8./1024.),1),
+					UsedFG_MB = CONVERT(NVARCHAR(20),CONVERT(MONEY,UsedFG_pages*8./1024.),1),
+					UsedFG_Pct = CASE WHEN SizeFG_pages = 0 THEN N'n/a'
+								ELSE CONVERT(NVARCHAR(20),CONVERT(DECIMAL(28,2),100.*(UsedFG_pages*8./1024.) / (SizeFG_pages*8./1024.))) + N'%'
+								END,
+					SizeDB_MB = CONVERT(NVARCHAR(20),CONVERT(MONEY,SizeDB_pages*8./1024.),1),
+					UsedDB_MB = CONVERT(NVARCHAR(20),CONVERT(MONEY,UsedDB_pages*8./1024.),1),
+					UsedDB_Pct = CASE WHEN SizeDB_pages = 0 THEN N'n/a'
+								ELSE CONVERT(NVARCHAR(20),CONVERT(DECIMAL(28,2),100.*(UsedDB_pages*8./1024.) / (SizeDB_pages*8./1024.))) + N'%'
+								END,
+					VolSize_MB, VolFree_MB, VolUsed_MB, VolUsed_Pct,
+					FilePhysicalName,
+					VolAttr,
+					VolFeatureSupport,
+					VolumeMountPoint,
+					VolLogicalName,
+					VolumeID
+				FROM Middle 
+				ORDER BY FGID, FileID;
+				;
+			END	--more files than FG
+
+		END
+	END
+
+	IF @BitmapType = N'NONE'
+	BEGIN
+		--skip detail result sets
+		goto helpbasic
+	END
+
+	IF @Debug = 1
+	BEGIN
+		SELECT N'Debug: bitmap chain' as ResultSetType,* 
+		FROM #ChainLog
+		ORDER BY RecordTimestamp ASC;
+	END
+
+	IF @BitmapType <> N'IAM'
+	BEGIN
+		IF @BitmapReturn = N'TOTAL'
+		BEGIN
+			SELECT 
+				TotalAllocated_Extents = TotalAllocated,
+				TotalAllocated_MB = CONVERT(BIGINT, TotalAllocated)*8*8/1024,
+				TotalUnallocated_Extents = TotalUnallocated,
+				TotalUnallocated_MB = CONVERT(BIGINT,TotalUnallocated)*8*8/1024
+			FROM (
+				SELECT 
+					TotalAllocated = MAX(CASE WHEN AllocState = 1 THEN NumExtents ELSE NULL END),
+					TotalUnallocated = MAX(CASE WHEN AllocState = 0 THEN NumExtents ELSE NULL END)
+				FROM (
+					SELECT 
+						g.AllocState, 
+						NumExtents = SUM(g.RangeSize_extents)
+					FROM #GAMLoopExtentData g
+					GROUP BY g.AllocState
+				) ss1
+			) ss2;
+		END
+
+		IF @BitmapReturn IN (N'ALLOC', N'UNALLOC')
+		BEGIN
+			SELECT 
+				Metric = CASE WHEN @BitmapReturn = N'ALLOC' THEN N'Allocated extents bucketed by runlength'
+									ELSE N'Unallocated extents bucketed by runlength'
+								END,
+				[TotalRuns] = SUM(1),
+				[TotalExtents] = SUM(RangeSize_extents),
+				[AvgRunLength_Extents] = CONVERT(DECIMAL(28,2),((SUM(RangeSize_extents)*1.) / (SUM(1)*1.))),
+				[sz_1] = SUM([sz_1]),
+				[sz_2] = SUM([sz_2]),
+				[sz_3] = SUM([sz_3]),
+				[sz_4] = SUM([sz_4]),
+				[sz_5] = SUM([sz_5]),
+				[sz_6] = SUM([sz_6]),
+				[sz_7] = SUM([sz_7]),
+				[sz_8] = SUM([sz_8]),
+				[sz_9] = SUM([sz_9]),
+				[sz_10] = SUM([sz_10]),
+				[sz_11to15] = SUM([sz_11to15]),
+				[sz_16to20] = SUM([sz_16to20]),
+				[sz_21to25] = SUM([sz_21to25]),
+				[sz_26to30] = SUM([sz_26to30]),
+				[sz_31plus] = SUM([sz_31plus])
+			FROM (
+				SELECT 
+					RangeSize_extents,
+					[sz_1] = CASE WHEN g.RangeSize_extents = 1 THEN 1 ELSE 0 END,
+					[sz_2] = CASE WHEN g.RangeSize_extents = 2 THEN 1 ELSE 0 END,
+					[sz_3] = CASE WHEN g.RangeSize_extents = 3 THEN 1 ELSE 0 END,
+					[sz_4] = CASE WHEN g.RangeSize_extents = 4 THEN 1 ELSE 0 END,
+					[sz_5] = CASE WHEN g.RangeSize_extents = 5 THEN 1 ELSE 0 END,
+					[sz_6] = CASE WHEN g.RangeSize_extents = 6 THEN 1 ELSE 0 END,
+					[sz_7] = CASE WHEN g.RangeSize_extents = 7 THEN 1 ELSE 0 END,
+					[sz_8] = CASE WHEN g.RangeSize_extents = 8 THEN 1 ELSE 0 END,
+					[sz_9] = CASE WHEN g.RangeSize_extents = 9 THEN 1 ELSE 0 END,
+					[sz_10] = CASE WHEN g.RangeSize_extents = 10 THEN 1 ELSE 0 END,
+					[sz_11to15] = CASE WHEN g.RangeSize_extents BETWEEN 11 AND 15 THEN 1 ELSE 0 END,
+					[sz_16to20] = CASE WHEN g.RangeSize_extents BETWEEN 16 AND 20 THEN 1 ELSE 0 END,
+					[sz_21to25] = CASE WHEN g.RangeSize_extents BETWEEN 21 AND 25 THEN 1 ELSE 0 END,
+					[sz_26to30] = CASE WHEN g.RangeSize_extents BETWEEN 26 AND 30 THEN 1 ELSE 0 END,
+					[sz_31plus] = CASE WHEN g.RangeSize_extents > 30 THEN 1 ELSE 0 END
+				FROM #GAMLoopExtentData g
+				WHERE g.AllocState = CASE WHEN @BitmapReturn = N'ALLOC' THEN CONVERT(BIT,1)
+											ELSE CONVERT(BIT,0)
+										END
+			) ss
+		END
+
+		IF @BitmapReturn = N'RAW'
+		BEGIN
+			SELECT g.*
+			FROM #GAMLoopExtentData g
+			ORDER BY g.GAMPage_FileID, g.GAMPage_PageID;
+		END
+	END
+	ELSE IF @BitmapType = N'IAM'
+	BEGIN
+		IF @BitmapReturn = N'TOTAL'
+		BEGIN
+			SELECT 
+				TotalAllocated_Extents = TotalAllocated,
+				TotalAllocated_MB = CONVERT(BIGINT, TotalAllocated)*8*8/1024,
+				TotalUnallocated_Extents = TotalUnallocated,
+				TotalUnallocated_MB = CONVERT(BIGINT,TotalUnallocated)*8*8/1024
+			FROM (
+				SELECT 
+					TotalAllocated = MAX(CASE WHEN AllocState = 1 THEN NumExtents ELSE NULL END),
+					TotalUnallocated = MAX(CASE WHEN AllocState = 0 THEN NumExtents ELSE NULL END)
+				FROM (
+					SELECT 
+						AllocState, 
+						NumExtents = SUM(RangeSize_extents)
+					FROM #IAMLoopExtentData
+					GROUP BY AllocState
+				) ss1
+			) ss2;
+		END
+
+		IF @BitmapReturn IN (N'ALLOC', N'UNALLOC')
+		BEGIN
+			SELECT 
+				Metric = CASE WHEN @BitmapReturn = N'ALLOC' THEN N'Allocated extents bucketed by runlength'
+									ELSE N'Unallocated extents bucketed by runlength'
+								END,
+				[TotalRuns] = SUM(1),
+				[TotalExtents] = SUM(RangeSize_extents),
+				[AvgRunLength_Extents] = CONVERT(DECIMAL(28,2),((SUM(RangeSize_extents)*1.) / (SUM(1)*1.))),
+				[sz_1] = SUM([sz_1]),
+				[sz_2] = SUM([sz_2]),
+				[sz_3] = SUM([sz_3]),
+				[sz_4] = SUM([sz_4]),
+				[sz_5] = SUM([sz_5]),
+				[sz_6] = SUM([sz_6]),
+				[sz_7] = SUM([sz_7]),
+				[sz_8] = SUM([sz_8]),
+				[sz_9] = SUM([sz_9]),
+				[sz_10] = SUM([sz_10]),
+				[sz_11to15] = SUM([sz_11to15]),
+				[sz_16to20] = SUM([sz_16to20]),
+				[sz_21to25] = SUM([sz_21to25]),
+				[sz_26to30] = SUM([sz_26to30]),
+				[sz_31plus] = SUM([sz_31plus])
+			FROM (
+				SELECT 
+					RangeSize_extents,
+					[sz_1] = CASE WHEN i.RangeSize_extents = 1 THEN 1 ELSE 0 END,
+					[sz_2] = CASE WHEN i.RangeSize_extents = 2 THEN 1 ELSE 0 END,
+					[sz_3] = CASE WHEN i.RangeSize_extents = 3 THEN 1 ELSE 0 END,
+					[sz_4] = CASE WHEN i.RangeSize_extents = 4 THEN 1 ELSE 0 END,
+					[sz_5] = CASE WHEN i.RangeSize_extents = 5 THEN 1 ELSE 0 END,
+					[sz_6] = CASE WHEN i.RangeSize_extents = 6 THEN 1 ELSE 0 END,
+					[sz_7] = CASE WHEN i.RangeSize_extents = 7 THEN 1 ELSE 0 END,
+					[sz_8] = CASE WHEN i.RangeSize_extents = 8 THEN 1 ELSE 0 END,
+					[sz_9] = CASE WHEN i.RangeSize_extents = 9 THEN 1 ELSE 0 END,
+					[sz_10] = CASE WHEN i.RangeSize_extents = 10 THEN 1 ELSE 0 END,
+					[sz_11to15] = CASE WHEN i.RangeSize_extents BETWEEN 11 AND 15 THEN 1 ELSE 0 END,
+					[sz_16to20] = CASE WHEN i.RangeSize_extents BETWEEN 16 AND 20 THEN 1 ELSE 0 END,
+					[sz_21to25] = CASE WHEN i.RangeSize_extents BETWEEN 21 AND 25 THEN 1 ELSE 0 END,
+					[sz_26to30] = CASE WHEN i.RangeSize_extents BETWEEN 26 AND 30 THEN 1 ELSE 0 END,
+					[sz_31plus] = CASE WHEN i.RangeSize_extents > 30 THEN 1 ELSE 0 END
+				FROM #IAMLoopExtentData i
+				WHERE i.AllocState = CASE WHEN @BitmapReturn = N'ALLOC' THEN CONVERT(BIT,1)
+											ELSE CONVERT(BIT,0)
+										END
+			) ss
+		END
+
+		IF @BitmapReturn = N'RAW'
+		BEGIN
+			SELECT *
+			FROM #IAMLoopExtentData i
+			ORDER BY i.IAMPage_FileID, i.IAMPage_PageID
+			;
+		END
+	END		--
 
 
 	/*
